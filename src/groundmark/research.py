@@ -23,7 +23,7 @@ from groundmark.verification import NebiusVerifier, Verifier
 EXAMPLES = (
     "Who won the 2026 Nobel Prize in Physics, and for what?",
     "What is the latest stable release of Python?",
-    "Who won the 2030 Nobel Prize in Physics?",
+    "What revenue did Apple report for its fiscal 2027 first quarter?",
 )
 
 
