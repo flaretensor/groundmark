@@ -47,7 +47,7 @@ CITATION = re.compile(r"\[(S[0-9]+)\]")
 
 
 def _escape(value: str) -> str:
-    value = re.sub(r"([\\\[\]*_()~:#<>])", r"\\\1", value)
+    value = re.sub(r"([\\\[\]*_()~:#<>$|])", r"\\\1", value)
     return value.replace(chr(96), "\\" + chr(96))
 
 
@@ -80,8 +80,11 @@ def _render_result(result: ResearchResult) -> None:
         st.markdown(_cited(result.summary, sources))
     if result.insufficient_evidence and result.sources:
         st.info(INSUFFICIENT)
-        for item in result.missing_information:
-            st.markdown(_escape(item))
+    if result.missing_information:
+        bullets = "\n".join(f"- {_escape(item)}" for item in result.missing_information)
+        st.markdown(f"**Not found in retrieved sources:**\n\n{bullets}")
+    if trace.stop_reason == "unanswerable":
+        st.info("This can't be known yet as of today's date.")
     if not result.sources and trace.stop_reason == "no_sources":
         st.info(NO_SOURCES)
     if trace.stop_reason == "budget":
@@ -122,8 +125,15 @@ def _render_result(result: ResearchResult) -> None:
             st.markdown(" · ".join(_link(ref, sources[ref].url) for ref in conflict.source_ids))
 
     with st.expander("Sources"):
+        synthesis_ids = set(trace.synthesis_source_ids)
         for source in result.sources:
-            st.markdown(_link(f"[{source.source_id}] {source.title}", source.url))
+            title = _link(f"[{source.source_id}] {source.title}", source.url)
+            usage_note = (
+                " · used in answer"
+                if source.source_id in synthesis_ids
+                else " · retrieved, not read for the answer"
+            )
+            st.markdown(title + usage_note)
             dates = " · ".join(
                 value for value in (source.published_date, source.retrieved_at) if value
             )
