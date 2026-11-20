@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "groundmark"
+version = "0.1.0"
+description = "Live-web research agent with claim-level source verification"
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+dependencies = [
+    "langgraph>=1",
+    "langgraph-checkpoint-sqlite>=3",
+    "langgraph-checkpoint-postgres>=3",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.9",
+    "openai>=2",
+    "tavily-python>=0.8.5",
+    "python-dotenv>=1.1",
+    "fastapi>=0.120",
+    "uvicorn>=0.35",
+    "httpx>=0.28",
+    "streamlit>=1.51",
+    "opentelemetry-api>=1.38",
+    "opentelemetry-sdk>=1.38",
+    "opentelemetry-exporter-otlp-proto-http>=1.38",
+]
+
+[project.optional-dependencies]
+rerank = ["sentence-transformers>=5.1", "torch>=2.8"]
+
+[project.scripts]
+groundmark = "groundmark.cli:main"
+groundmark-mcp = "groundmark.mcp_server:main"
+
+[dependency-groups]
+dev = ["pytest>=8.4", "pytest-socket>=0.7", "ruff>=0.14"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/groundmark"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+
+[tool.pytest.ini_options]
+addopts = "--disable-socket --allow-unix-socket -q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

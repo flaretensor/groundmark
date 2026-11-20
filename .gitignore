@@ -3,3 +3,10 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+.env.compose
+.cache/
+.artifacts/
+*.sqlite*
+.pytest_cache/
+.ruff_cache/
