@@ -244,3 +244,47 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
     assert prompt.count("</untrusted_source>") == 6 and "omitted" not in prompt
     assert result.trace.stripped_source_ids == ["S8"]
     assert result.claims[0].status == "not_supported"
+
+
+def test_claim_text_cleanup_dated_prompt_and_partial_support(settings):
+    llm = ScriptedLLM(
+        Plan=[plan()],
+        Synthesis=[
+            synthesis(
+                {
+                    "claim_id": "C1",
+                    "text": "The plant opened in 2024 [S1, S1] .",
+                    "source_ids": ["S1"],
+                },
+                {"claim_id": "C2", "text": "The plant cost $2 billion.", "source_ids": ["S1"]},
+                summary="The plant opened in 2024 [S1].",
+            )
+        ],
+        PairJudgments=[
+            {
+                "pairs": [
+                    {
+                        "claim_id": "C1",
+                        "verdict": "supported",
+                        "evidence_quote": "opened in 2024",
+                        "reason": "The source gives the year.",
+                    },
+                    {
+                        "claim_id": "C2",
+                        "verdict": "not_supported",
+                        "evidence_quote": "",
+                        "reason": "The source gives no cost.",
+                    },
+                ]
+            }
+        ],
+    )
+    result = ResearchRunner(settings, llm=llm, search=ScriptedSearch([snippet()])).run(
+        "When?", Options(max_rounds=1)
+    )
+    synthesis_request = next(r for r in llm.requests if r.schema.__name__ == "Synthesis")
+    assert synthesis_request.prompt.startswith("Current date: ")
+    assert result.claims[0].claim.text == "The plant opened in 2024."
+    assert result.summary == "The plant opened in 2024. [S1]"
+    assert [row.status for row in result.claims] == ["supported", "not_supported"]
+    assert result.insufficient_evidence is False

@@ -189,3 +189,10 @@ def strip_markers(text: str, allowed: set[str], stripped: list[str]) -> str:
         return ""
 
     return re.sub(r"\[([Ss][A-Za-z0-9_-]+)\]", replace, text)
+
+
+def plain_claim_text(text: str) -> str:
+    """Drop citation markers, including lists like [S1, S2], from claim text."""
+    text = re.sub(r"\[\s*[Ss]\d+(?:\s*[,;]\s*[Ss]?\d+)*\s*\]", "", text)
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
