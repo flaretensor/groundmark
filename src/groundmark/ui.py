@@ -93,6 +93,7 @@ STAGES = {
     "finalize": "Finalize",
 }
 CITATION = re.compile(r"([ \t]*)\[(S[0-9]+)\]")
+CITATIONS = re.compile(r"(?:[ \t]*\[S[0-9]+\])+")
 MENTION = re.compile(r"\[?\b(S[0-9]+)\b\]?")
 
 STYLES = """<style>
@@ -226,14 +227,17 @@ def _chip(source_id: str, sources: dict[str, Source], numbers: dict[str, int]) -
 def _cited(text: str, sources: dict[str, Source], numbers: dict[str, int]) -> str:
     fragments = []
     at = 0
-    for match in CITATION.finditer(text):
-        fragments.append(_escape(_plain(text[at : match.start()], numbers)))
-        if match[2] in numbers:
-            space = "\u00a0" if match[1] else ""
-            fragments.append(space + _chip(match[2], sources, numbers))
-        else:
-            fragments.append(_escape(match[0]))
-        at = match.end()
+    for run in CITATIONS.finditer(text):
+        fragments.append(_escape(_plain(text[at : run.start()], numbers)))
+        matches = list(CITATION.finditer(run[0]))
+        known = sorted(
+            dict.fromkeys(match[2] for match in matches if match[2] in numbers), key=numbers.get
+        )
+        if known:
+            space = "\u00a0" if matches[0][1] else ""
+            fragments.append(space + " ".join(_chip(ref, sources, numbers) for ref in known))
+        fragments.extend(_escape(match[0]) for match in matches if match[2] not in numbers)
+        at = run.end()
     fragments.append(_escape(_plain(text[at:], numbers)))
     return "".join(fragments)
 
@@ -268,11 +272,11 @@ def _render_notices(result: ResearchResult, numbers: dict[str, int]) -> None:
 
 
 def _render_claim(
-    index: int, row: ClaimResult, sources: dict[str, Source], numbers: dict[str, int]
+    key: str, row: ClaimResult, sources: dict[str, Source], numbers: dict[str, int]
 ) -> None:
     color, label = STATUS[row.status]
     title = f":{color}-badge[{label}] {_escape(row.claim.text)}"
-    with st.expander(title, key=f"claim_{index}"):
+    with st.expander(title, key=key):
         if row.reason:
             st.caption(_escape(_plain(row.reason, numbers)))
         if not row.pairs:
@@ -303,11 +307,11 @@ def _render_claim(
             st.caption(" · ".join(notes))
 
 
-def _render_source(index: int, number: int, source: Source, status: str) -> None:
+def _render_source(key: str, number: int, source: Source, status: str) -> None:
     title = f":primary-background[**{number}**] {_escape(source.title)}"
     if domain := _domain(source.url):
         title += f" · {_escape(domain)}"
-    with st.expander(title, key=f"source_{index}"):
+    with st.expander(title, key=key):
         details = [status, f"retrieved {_date(source.retrieved_at)}"]
         if source.evidence_scope == "page":
             details.append("full page fetched")
@@ -352,7 +356,7 @@ def _render_result(result: ResearchResult) -> None:
             ),
         )
         for index, row in enumerate(result.claims):
-            _render_claim(index, row, sources, numbers)
+            _render_claim(f"claim_{trace.run_id}_{index}", row, sources, numbers)
 
     if result.conflicts:
         st.subheader(
@@ -400,7 +404,9 @@ def _render_result(result: ResearchResult) -> None:
         ordered = sorted(result.sources, key=lambda source: numbers[source.source_id])
         for index, source in enumerate(ordered):
             status = read_status if source.source_id in read_ids else unread_status
-            _render_source(index, numbers[source.source_id], source, status)
+            _render_source(
+                f"source_{trace.run_id}_{index}", numbers[source.source_id], source, status
+            )
 
 
 def _render_trace(result: ResearchResult | None) -> None:

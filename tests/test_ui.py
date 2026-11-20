@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -211,3 +212,34 @@ def test_lowered_verdict_hides_quote_and_only_retrieval_date_is_shown(outcome):
     assert "Read for the answer · retrieved Nov 20, 2026, 20\\:48 UTC" in captions
     assert not any("published" in row for row in captions)
     assert outcome.sources[0].published_date == "Thu, 25 Jun 2026 00:00:00 GMT"
+
+
+def test_expanders_are_keyed_by_run_so_new_answers_start_collapsed(outcome):
+    app = AppTest.from_file(UI)
+    app.session_state["result"] = outcome
+    app.run()
+    assert not app.exception
+    run_id = outcome.trace.run_id
+    assert [item.key for item in app.expander] == [f"claim_{run_id}_0", f"source_{run_id}_0"]
+    assert not any(item.proto.expanded for item in app.expander)
+    app.session_state["result"] = outcome.model_copy(
+        update={"trace": outcome.trace.model_copy(update={"run_id": "next-run"})}
+    )
+    app.run()
+    assert [item.key for item in app.expander] == ["claim_next-run_0", "source_next-run_0"]
+
+
+def test_adjacent_citations_are_sorted_and_deduplicated(outcome):
+    from groundmark.ui import _cited, _numbers
+
+    first = outcome.sources[0]
+    outcome.sources = [first.model_copy(update={"source_id": f"S{n}"}) for n in (1, 2, 3)]
+    outcome.summary = "First. [S1] [S2]\n\nSecond. [S3][S1] [S2] [S1] [S9]"
+    outcome.trace.synthesis_source_ids = ["S1", "S2", "S3"]
+    numbers = _numbers(outcome)
+    sources = {source.source_id: source for source in outcome.sources}
+    text = _cited(outcome.summary, sources, numbers)
+    second = text.split("\n\n")[1]
+    assert [int(n) for n in re.findall(r"\[([0-9]+)\]\(", second)] == [1, 2, 3]
+    assert second.startswith("Second. [1](")
+    assert second.endswith("\\[S9\\]")
