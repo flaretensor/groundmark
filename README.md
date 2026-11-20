@@ -25,7 +25,7 @@ The second claim gives the prize citation, quoted from the Nobel press release. 
 
 **When sources disagree:** *What is the latest stable release of Python?* Python.org's download page and home page name 3.15.2 as the latest release. Two other pages disagree: a python.org source-releases page, served as a no-script fallback, that listed 3.15.1, and an older article written while 3.15 was still a release candidate. Groundmark marked "the latest stable release is 3.15.2" as **Sources disagree** and kept it out of the answer. The answer kept only the two supported claims, the 3.15.2 and 3.15.0 release dates.
 
-**Failure case:** *What revenue did Apple report for its fiscal 2027 first quarter?* Apple's fiscal first quarter runs from October to December, so on November 20, 2026 it hadn't been reported. The agent searched once, found older first-quarter results and a page expecting the next report in late January 2027, and stopped: "This can't be known yet as of today's date." It skipped synthesis and made no claims instead of reporting an earlier quarter's revenue.
+**Failure case:** *What revenue did Apple report for its fiscal 2027 first quarter?* Apple's fiscal first quarter runs from October to December, so on November 20, 2026 it hadn't been reported. The agent ran one search round, found older first-quarter results and a page expecting the next report in late January 2027, and stopped: "This can't be known yet as of today's date." It skipped synthesis and made no claims instead of reporting an earlier quarter's revenue.
 
 | Run | Outcome | Time | Tavily credits | Estimated Nebius cost |
 |---|---|---:|---:|---:|
