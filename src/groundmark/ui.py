@@ -4,7 +4,8 @@ from urllib.parse import quote
 
 import streamlit as st
 
-from groundmark.client import LocalClient, ResearchClient, RunError
+from groundmark.client import HttpClient, LocalClient, ResearchClient, RunError
+from groundmark.config import Settings
 from groundmark.models import Progress, ResearchResult, Source
 from groundmark.research import EXAMPLES
 from groundmark.sources import canonical_url
@@ -200,7 +201,10 @@ def main(client: ResearchClient | None = None) -> None:
         if len(question) > 500:
             st.session_state.failure = "invalid_question"
         else:
-            _show_progress(client or LocalClient(), question)
+            if client is None:
+                api_url = Settings().api_url
+                client = HttpClient(api_url) if api_url else LocalClient()
+            _show_progress(client, question)
     if failure := st.session_state.get("failure"):
         st.error({"invalid_question": LENGTH, "busy": BUSY}.get(failure, FAILED))
     if result := st.session_state.get("result"):
