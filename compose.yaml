@@ -22,7 +22,7 @@ services:
     volumes:
       - ./.artifacts:/app/.artifacts
       - ./.cache/compose-runtime:/app/.cache
-      - ../.hf-cache:/home/groundmark/.cache/huggingface
+      - ./.cache/huggingface:/home/groundmark/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
