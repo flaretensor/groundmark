@@ -15,25 +15,27 @@ Groundmark is for anyone who needs a current fact they can check before using it
 
 ## Example
 
-**Question:** What was NVIDIA's most recent quarterly data center revenue?
+**Question:** Who won the 2026 Nobel Prize in Physics, and for what?
 
 **Answer:**
 
-> NVIDIA's most recent quarterly Data Center revenue was $107.6 billion for Q3 fiscal 2027, the quarter ended October 25, 2026. [1] [2] [3]
->
-> Q3 FY2027 Data Center revenue rose 110% from Q3 FY2026 and 21% sequentially from Q2 FY2027 Data Center revenue of $89.0 billion. [1] [3]
+> The Royal Swedish Academy of Sciences awarded the Nobel Prize in Physics 2026 to Francis Halzen of the University of Wisconsin–Madison, USA, announced on 6 October 2026. [1] [2]
 
-Each number links to its source page. Open a claim under **Claims** to see each source's verdict, the verbatim quote the checker relied on and a one-sentence reason. In this run the checker accepted sources 1 and 3 for the second claim but not NVIDIA's own release (source 2): the release snippet doesn't state the 21% sequential Data Center growth, so source 2 is cited only for the first claim.
+The second claim gives the prize citation, quoted from the Nobel press release. Each number links to its source page. Open a claim under **Claims** to see each source's verdict, the verbatim quote the checker relied on and a one-sentence reason. All seven sources read for this answer came from nobelprize.org or the Nobel Prize YouTube channel.
+
+**When sources disagree:** *What is the latest stable release of Python?* Python.org's download page and home page name 3.15.2 as the latest release. Two other pages disagree: a python.org source-releases page, served as a no-script fallback, that listed 3.15.1, and an older article written while 3.15 was still a release candidate. Groundmark marked "the latest stable release is 3.15.2" as **Sources disagree** and kept it out of the answer. The answer kept only the two supported claims, the 3.15.2 and 3.15.0 release dates.
 
 **Failure case:** *Who won the 2030 Nobel Prize in Physics?* The agent searched once, recognized that the 2030 prize hasn't been awarded yet, and stopped: "This can't be known yet as of today's date." It skipped synthesis and made no claims.
 
 | Run | Outcome | Time | Tavily credits | Estimated Nebius cost |
 |---|---|---:|---:|---:|
-| NVIDIA data center revenue | 2 supported claims, 1 search round | 14.7 s | 2 | $0.011 |
-| Tokyo population | 3 supported claims, 2 conflicting claims, 2 rounds | 20.0 s | 3 | $0.016 |
-| 2030 Nobel Prize in Physics | Abstained after 1 round | 3.9 s | 1 | $0.0008 |
+| 2026 Nobel Prize in Physics | 2 supported claims, 1 search round | 13.0 s | 2 | $0.009 |
+| Latest stable Python release | 2 supported claims, 1 conflicting claim, 1 round | 16.7 s | 2 | $0.011 |
+| 2030 Nobel Prize in Physics | Abstained after 1 round | 3.1 s | 1 | $0.0008 |
+| NVIDIA's most recent quarterly data center revenue | 1 supported claim, 1 round. NVIDIA's own release was read, but its snippet lacked the 21% sequential growth in the claim, so other sources carried it | 17.2 s | 2 | $0.012 |
+| Microsoft's most recent quarterly revenue | 2 supported claims, 1 round. The revenue figure was supported only by an aggregator's company profile | 16.5 s | 2 | $0.009 |
 
-These are single live runs from November 20, 2026, recorded to show behavior. They aren't an accuracy benchmark.
+These are all five live runs made on November 20, 2026 after the last change to the agent, recorded to show behavior. They aren't an accuracy benchmark.
 
 ## How it works
 
@@ -96,7 +98,7 @@ If a default port is taken, the script picks the next free one and writes it to 
 
 ```bash
 uv sync
-uv run groundmark ask "What was NVIDIA's most recent quarterly data center revenue?"
+uv run groundmark ask "Who won the 2026 Nobel Prize in Physics, and for what?"
 uv run streamlit run src/groundmark/ui.py
 uv run groundmark report            # DuckDB summary of past runs
 ```
@@ -125,8 +127,9 @@ API keys, hidden reasoning and full page text never go into the trace. In Docker
 
 ## Limitations
 
-- **The checker is a model.** The same model writes and checks the claims. A verdict is the model's judgment plus a literal quote match, not proof. In the Tokyo run the answer matched the official source it cited: the Tokyo Metropolitan Government figure of 14.273 million as of October 1, 2025, plus the urban-area estimate, each labeled with its scope. But the cross-check flagged a prefecture figure as contradicting a city-proper figure, and it accepted a low-quality page's claim of 37.8 million as a contradiction. Both mistakes ended up under **Conflicts**, not in the answer, and both are scope errors.
-- **Source quality isn't scored.** The prompts prefer official sources, but nothing in the code ranks sources by authority. Tavily's relevance score isn't a reliability score.
+- **The checker is a model.** The same model writes and checks the claims. A verdict is the model's judgment plus a literal quote match, not proof. In an earlier Tokyo population run the answer matched the official source it cited: the Tokyo Metropolitan Government figure of 14.273 million as of October 1, 2025, plus the urban-area estimate, each labeled with its scope. But the cross-check flagged a prefecture figure as contradicting a city-proper figure, and it accepted a low-quality page's claim of 37.8 million as a contradiction. Both mistakes ended up under **Conflicts**, not in the answer, and both are scope errors.
+- **Source quality isn't scored.** The prompts prefer official sources, but nothing in the code ranks sources by authority. Tavily's relevance score isn't a reliability score. In the NVIDIA run a Reddit post was cited next to filings coverage, and in the Microsoft run an aggregator profile was the only support for the revenue figure.
+- **Claims aren't always atomic.** In the NVIDIA run the model packed revenue, period and two growth rates into one claim, so a source that confirmed only part of it didn't count as support.
 - **Only sources read for the answer are checked.** That's up to ten per run. Other retrieved results are listed but not verified.
 - **Snippets lose structure.** Tables and infoboxes arrive flattened, so a number can lose its label.
 - **No accuracy benchmark yet.** The runs above are examples, not measured accuracy.
