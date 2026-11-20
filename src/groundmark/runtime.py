@@ -42,14 +42,22 @@ class Calls:
     errors: list[ResearchError] = field(default_factory=list)
     tokens: TokenUsage = field(default_factory=TokenUsage)
     spent: Amount = field(default_factory=Amount)
-    budget_stopped: bool = False
+    credits_stopped: bool = False
+    usd_stopped: bool = False
     lock: Lock = field(default_factory=Lock)
+
+    @property
+    def budget_stopped(self) -> bool:
+        return self.credits_stopped or self.usd_stopped
 
     def error(self, stage: str, error: BudgetRefused | ProviderFailure, retried: bool = False):
         with self.lock:
             if isinstance(error, BudgetRefused):
-                self.budget_stopped = True
-                entry = ResearchError(kind="budget", stage=stage)
+                if error.kind == "credits":
+                    self.credits_stopped = True
+                else:
+                    self.usd_stopped = True
+                entry = ResearchError(kind="budget", stage=stage, budget_kind=error.kind)
             else:
                 entry = ResearchError(
                     kind=error.kind,
@@ -92,8 +100,8 @@ class Calls:
                 if model:
                     span.set_attribute("gen_ai.request.model", model)
                 try:
-                    if self.budget_stopped:
-                        raise BudgetRefused("estimated provider budget reached")
+                    if self.usd_stopped or (provider == "tavily" and self.credits_stopped):
+                        raise BudgetRefused(kind="usd" if self.usd_stopped else "credits")
                     reservation = self.ledger.reserve(
                         self.run_id, operation, worst_case, self.limit
                     )

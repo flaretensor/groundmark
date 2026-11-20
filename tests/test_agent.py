@@ -72,19 +72,55 @@ def test_empty_search_skips_synthesis(settings):
     assert len(llm.requests) == 1
 
 
-def test_credit_enforcement_keeps_partial_results(settings):
-    llm = ScriptedLLM(Plan=[{"queries": ["first", "second"], "rationale": "More detail."}])
+@pytest.mark.parametrize("queries", [["first"], ["first", "second"]])
+def test_credit_enforcement_keeps_partial_results(settings, queries):
+    llm = ScriptedLLM(
+        Plan=[{"queries": queries, "rationale": "Find the opening date."}],
+        Synthesis=[
+            synthesis({"claim_id": "C1", "text": "The plant opened in 2024.", "source_ids": ["S1"]})
+        ],
+        PairJudgments=[
+            {
+                "pairs": [
+                    {
+                        "claim_id": "C1",
+                        "verdict": "supported",
+                        "evidence_quote": "The plant opened in 2024.",
+                        "reason": "The source gives the year.",
+                    }
+                ]
+            }
+        ],
+    )
     search = ScriptedSearch([snippet()])
     result = ResearchRunner(settings, llm=llm, search=search).run("When?", Options(max_credits=1))
     assert result.trace.stop_reason == "budget"
+    assert result.summary == "The plant opened in 2024. [S1]"
+    assert result.claims[0].status == "supported"
     assert len(result.sources) == 1
     assert result.trace.tavily_credits == 1
     assert result.trace.errors[-1].kind == "budget"
+    assert result.trace.errors[-1].budget_kind == "credits"
     assert search.requests == ["first"]
 
 
+def test_usd_budget_blocks_synthesis_after_search(settings):
+    llm = ScriptedLLM(Plan=[plan()])
+    search = ScriptedSearch([snippet()])
+    result = ResearchRunner(settings, llm=llm, search=search).run(
+        "When?", Options(max_rounds=1, max_cost=0.002)
+    )
+    assert result.trace.stop_reason == "budget"
+    assert result.trace.errors[-1].budget_kind == "usd"
+    assert len(result.sources) == 1 and result.claims == []
+    assert [request.schema.__name__ for request in llm.requests] == ["Plan"]
+
+
 def test_request_options_cannot_raise_configured_run_limit(settings):
-    llm = ScriptedLLM(Plan=[{"queries": ["first", "second"], "rationale": "More detail."}])
+    llm = ScriptedLLM(
+        Plan=[{"queries": ["first", "second"], "rationale": "More detail."}],
+        Synthesis=[synthesis(insufficient=True)],
+    )
     search = ScriptedSearch([snippet()])
     capped = settings.model_copy(update={"max_tavily_credits": 1})
     result = ResearchRunner(capped, llm=llm, search=search).run("When?", Options(max_credits=100))

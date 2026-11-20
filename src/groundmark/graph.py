@@ -128,7 +128,7 @@ def _synthesis_sources(sources: list[Source]) -> list[Source]:
 
 def plan(state: State, context: GraphContext) -> State:
     if not context.use_cache and context.remaining_credits() == 0:
-        context.calls.error("plan", BudgetRefused())
+        context.calls.error("plan", BudgetRefused(kind="credits"))
         return {"queries": [], "stop_reason": "budget"}
     question = state["question"]
     today = datetime.now(UTC).date().isoformat()
@@ -243,6 +243,7 @@ def assess(state: State, context: GraphContext) -> State:
     if remaining_rounds <= 0:
         return {"stop_reason": "max_rounds" if sources else "no_sources", "queries": []}
     if remaining_credits == 0:
+        context.calls.error("assess", BudgetRefused(kind="credits"))
         return {"stop_reason": "budget", "queries": []}
     query = (
         f"Question: {state['question']}\nRemaining rounds: {remaining_rounds}; "
@@ -280,7 +281,7 @@ def assess(state: State, context: GraphContext) -> State:
 
 def synthesize(state: State, context: GraphContext) -> State:
     sources = _get_sources(state)
-    if not sources or context.calls.budget_stopped:
+    if not sources or context.calls.usd_stopped:
         return {}
     picked = _synthesis_sources(sources)
     picked_ids = [source.source_id for source in picked]
@@ -344,7 +345,7 @@ def synthesize(state: State, context: GraphContext) -> State:
 
 
 def verify(state: State, context: GraphContext) -> State:
-    if "synthesis" not in state:
+    if "synthesis" not in state or context.calls.usd_stopped:
         return {}
     output = Synthesis.model_validate(state["synthesis"])
     pairs = context.verifier.verify(output.claims, _get_sources(state))

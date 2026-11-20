@@ -6,13 +6,21 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 NANOS_PER_USD = 1_000_000_000
 
 
 class BudgetRefused(Exception):
-    pass
+    def __init__(
+        self,
+        message: str = "estimated provider budget reached",
+        *,
+        kind: Literal["credits", "usd"] = "usd",
+    ):
+        super().__init__(message)
+        self.kind = kind
 
 
 @dataclass(frozen=True)
@@ -88,17 +96,23 @@ class SpendLedger:
     def start(self, run_id: str) -> None:
         with self._locked() as (rows, file):
             used = self._used(rows)
-            if used.credits >= self.total_limit.credits or used.nanos >= self.total_limit.nanos:
+            if used.nanos >= self.total_limit.nanos:
                 raise BudgetRefused("total provider budget reached")
+            if used.credits >= self.total_limit.credits:
+                raise BudgetRefused("total provider budget reached", kind="credits")
             self._append(file, {"event": "start", "run_id": run_id})
 
     def reserve(self, run_id: str, operation: str, amount: Amount, limit: Amount) -> str:
         call_id = uuid4().hex
         with self._locked() as (rows, file):
-            if (self._used(rows, run_id) + amount).exceeds(limit) or (
-                self._used(rows) + amount
-            ).exceeds(self.total_limit):
-                raise BudgetRefused("estimated provider budget reached")
+            run_after = self._used(rows, run_id) + amount
+            total_after = self._used(rows) + amount
+            if run_after.nanos > limit.nanos or total_after.nanos > self.total_limit.nanos:
+                raise BudgetRefused()
+            if amount.credits and (
+                run_after.credits > limit.credits or total_after.credits > self.total_limit.credits
+            ):
+                raise BudgetRefused(kind="credits")
             self._append(
                 file,
                 {

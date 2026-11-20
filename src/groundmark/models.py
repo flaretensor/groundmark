@@ -106,6 +106,7 @@ class ResearchError(BaseModel):
     provider: str | None = None
     http_status: int | None = None
     retried: bool = False
+    budget_kind: str | None = None
 
 
 class SpanRecord(BaseModel):
