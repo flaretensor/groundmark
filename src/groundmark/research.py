@@ -21,8 +21,8 @@ from groundmark.telemetry import RunTelemetry, mlflow_headers
 from groundmark.verification import NebiusVerifier, Verifier
 
 EXAMPLES = (
-    "What was NVIDIA's most recent quarterly data center revenue?",
-    "What is the population of Tokyo?",
+    "Who won the 2026 Nobel Prize in Physics, and for what?",
+    "What is the latest stable release of Python?",
     "Who won the 2030 Nobel Prize in Physics?",
 )
 
