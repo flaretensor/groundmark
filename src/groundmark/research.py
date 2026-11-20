@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from groundmark.budget import Amount, BudgetRefused, SpendLedger
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
+from groundmark.evidence import extract_evidence, needs_extraction
 from groundmark.graph import GraphContext, build_graph, finalize
 from groundmark.models import Progress, ResearchResult
 from groundmark.providers import Embedder, LLMClient, NebiusClient, SearchClient, TavilySearchClient
@@ -45,7 +46,7 @@ class ResearchRunner:
         search: SearchClient | None = None,
         embedder: Embedder | None = None,
         verifier_factory: Callable[[Calls], Verifier] = NebiusVerifier,
-        extract_node=None,
+        extract_node=extract_evidence,
     ):
         self.settings = settings or Settings()
         self.credentials = credentials
@@ -125,7 +126,7 @@ class ResearchRunner:
             tracing_context(enabled=False),
             build_checkpointer(self.settings.checkpoint_url) as saver,
         ):
-            graph = build_graph(saver, self.extract_node)
+            graph = build_graph(saver, self.extract_node, needs_extraction)
             with telemetry.span(
                 "groundmark.research", **{"groundmark.run_id": calls.run_id}
             ) as root:

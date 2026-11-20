@@ -400,7 +400,7 @@ def finalize(state: State, context: GraphContext) -> State:
     return {"result": result.model_dump(mode="json")}
 
 
-def build_graph(checkpointer, extract_node=None):
+def build_graph(checkpointer, extract_node=None, should_extract=None):
     graph = StateGraph(State, context_schema=GraphContext)
 
     def instrument(name, step):
@@ -453,7 +453,11 @@ def build_graph(checkpointer, extract_node=None):
         graph.add_edge("verify", "finalize")
     else:
         graph.add_node("extract", instrument("extract", extract_node))
-        graph.add_edge("verify", "extract")
+        graph.add_conditional_edges(
+            "verify",
+            lambda state: "extract" if should_extract(state) else "finalize",
+            ["extract", "finalize"],
+        )
         graph.add_edge("extract", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile(checkpointer=checkpointer)
