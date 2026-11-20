@@ -1,0 +1,11 @@
+**
+!pyproject.toml
+!uv.lock
+!src/
+!src/**
+!.streamlit/
+!.streamlit/config.toml
+.env*
+**/.env*
+**/__pycache__/
+**/*.pyc

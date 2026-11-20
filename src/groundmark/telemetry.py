@@ -48,3 +48,21 @@ class RunTelemetry:
 
     def close(self) -> None:
         self.provider.shutdown()
+
+
+def mlflow_headers(tracking_uri: str) -> dict[str, str]:
+    import httpx
+
+    root = tracking_uri.rstrip("/") + "/api/2.0/mlflow/experiments"
+    with httpx.Client(timeout=4, trust_env=False) as client:
+        response = client.get(root + "/get-by-name", params={"experiment_name": "groundmark"})
+        if response.status_code == 404:
+            response = client.post(root + "/create", json={"name": "groundmark"})
+            if response.status_code == 200:
+                return {"x-mlflow-experiment-id": str(response.json()["experiment_id"])}
+            if response.status_code in {400, 409}:
+                response = client.get(
+                    root + "/get-by-name", params={"experiment_name": "groundmark"}
+                )
+        response.raise_for_status()
+        return {"x-mlflow-experiment-id": str(response.json()["experiment"]["experiment_id"])}

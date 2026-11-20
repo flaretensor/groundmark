@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import uuid4
 
+import httpx
 from langsmith import tracing_context
 from pydantic import BaseModel, Field
 
@@ -15,7 +16,7 @@ from groundmark.models import Progress, ResearchResult
 from groundmark.providers import Embedder, LLMClient, NebiusClient, SearchClient, TavilySearchClient
 from groundmark.runtime import Calls
 from groundmark.sources import clean_text
-from groundmark.telemetry import RunTelemetry
+from groundmark.telemetry import RunTelemetry, mlflow_headers
 from groundmark.verification import NebiusVerifier, Verifier
 
 EXAMPLES = (
@@ -90,7 +91,18 @@ class ResearchRunner:
             if self.search is None
             else None
         )
-        telemetry = RunTelemetry(settings.otlp_endpoint)
+        endpoint = settings.otlp_endpoint
+        headers = None
+        otlp_note = ""
+        if endpoint and settings.mlflow_tracking_uri:
+            try:
+                headers = mlflow_headers(settings.mlflow_tracking_uri)
+            except (httpx.HTTPError, KeyError, ValueError):
+                endpoint = ""
+                otlp_note = (
+                    "The MLflow experiment could not be resolved. The local trace was retained."
+                )
+        telemetry = RunTelemetry(endpoint, headers)
         calls = Calls(
             settings=settings,
             credentials=credentials,
@@ -110,7 +122,10 @@ class ResearchRunner:
             settings.use_cache if options.use_cache is None else options.use_cache,
         )
         try:
-            return self._run_graph(question, context, live)
+            result = self._run_graph(question, context, live)
+            if otlp_note:
+                result.trace.notes.append(otlp_note)
+            return result
         finally:
             telemetry.close()
             if nebius is not None:

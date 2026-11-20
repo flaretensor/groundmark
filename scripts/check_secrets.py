@@ -9,13 +9,17 @@ def git(*args: str) -> bytes:
 
 
 def main() -> int:
-    if not Path(".env").is_file():
-        print("Credential check skipped (.env absent)")
+    secrets = []
+    for filename, keys in (
+        (".env", ("NEBIUS_API_KEY", "TAVILY_API_KEY")),
+        (".env.compose", ("POSTGRES_PASSWORD", "GF_SECURITY_ADMIN_PASSWORD")),
+    ):
+        if Path(filename).is_file():
+            values = dotenv_values(filename, interpolate=False)
+            secrets.extend(values[key].encode() for key in keys if values.get(key))
+    if not secrets:
+        print("Credential check skipped (local credentials absent)")
         return 0
-    values = dotenv_values(".env", interpolate=False)
-    secrets = [
-        values[key].encode() for key in ("NEBIUS_API_KEY", "TAVILY_API_KEY") if values.get(key)
-    ]
     paths = git("ls-files", "-z").split(b"\0")
     tracked = [Path(path.decode("utf-8", errors="surrogateescape")) for path in paths if path]
     for path in tracked:

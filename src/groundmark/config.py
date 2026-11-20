@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     thinking_off_timeout: Annotated[float, Field(gt=0)] = 45
     tavily_timeout: Annotated[float, Field(gt=0, le=120)] = 30
     extract_timeout: Annotated[float, Field(gt=0, le=120)] = 30
-    checkpoint_url: str = ".cache/checkpoints.sqlite"
+    checkpoint_url: str = Field(".cache/checkpoints.sqlite", repr=False)
     cache_dir: Path = Path(".cache")
     artifacts_dir: Path = Path(".artifacts")
     use_cache: bool = False

@@ -1,0 +1,2 @@
+CREATE DATABASE groundmark;
+CREATE DATABASE mlflow;

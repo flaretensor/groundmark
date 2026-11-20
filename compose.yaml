@@ -1,0 +1,93 @@
+name: groundmark
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    image: groundmark-api:local
+    user: "${GROUNDMARK_UID:-1000}:${GROUNDMARK_GID:-1000}"
+    ports:
+      - "127.0.0.1:${GROUNDMARK_API_PORT:-8100}:8100"
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.compose
+        required: false
+    environment:
+      GROUNDMARK_CONTAINER: "1"
+      GROUNDMARK_RERANKER: cross-encoder
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://mlflow:5000/v1/traces
+    volumes:
+      - ./.artifacts:/app/.artifacts
+      - ./.cache/compose-runtime:/app/.cache
+      - ../.hf-cache:/home/groundmark/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+  ui:
+    build:
+      context: .
+      target: ui
+    image: groundmark-ui:local
+    ports:
+      - "127.0.0.1:${GROUNDMARK_UI_PORT:-8601}:8601"
+    environment:
+      GROUNDMARK_API_URL: http://api:8100
+    depends_on:
+      api:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+    ports:
+      - "127.0.0.1:${GROUNDMARK_POSTGRES_PORT:-5433}:5432"
+    env_file:
+      - path: .env.compose
+        required: false
+    environment:
+      POSTGRES_USER: groundmark
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./deploy/postgres-init.sql:/docker-entrypoint-initdb.d/10-groundmark.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "groundmark", "-d", "groundmark"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mlflow:
+    build:
+      context: .
+      dockerfile: deploy/mlflow.Dockerfile
+    image: groundmark-mlflow:local
+    entrypoint: []
+    command:
+      - sh
+      - -ec
+      - >-
+        exec mlflow server --host 0.0.0.0 --port 5000
+        --backend-store-uri "$$MLFLOW_BACKEND_STORE_URI"
+        --serve-artifacts --artifacts-destination /mlflow/artifacts
+        --allowed-hosts "localhost:*,127.0.0.1:*,mlflow:5000"
+    ports:
+      - "127.0.0.1:${GROUNDMARK_MLFLOW_PORT:-5100}:5000"
+    env_file:
+      - path: .env.compose
+        required: false
+    volumes:
+      - mlflow:/mlflow/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/health',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres:
+  mlflow:
