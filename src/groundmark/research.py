@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from decimal import Decimal
 from typing import Annotated
 from uuid import uuid4
 
@@ -8,7 +7,7 @@ from langsmith import tracing_context
 from pydantic import BaseModel, Field
 
 from groundmark.analytics import append_result
-from groundmark.budget import Amount, BudgetRefused, SpendLedger
+from groundmark.budget import BudgetRefused, SpendLedger, usd_amount
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
 from groundmark.evidence import extract_evidence, needs_extraction
@@ -29,8 +28,8 @@ EXAMPLES = (
 
 class Options(BaseModel):
     max_rounds: Annotated[int | None, Field(ge=1, le=2)] = None
-    max_credits: Annotated[int | None, Field(ge=0, le=6)] = None
-    max_cost: Annotated[float | None, Field(ge=0, le=0.15)] = None
+    max_credits: Annotated[int | None, Field(ge=0)] = None
+    max_cost: Annotated[float | None, Field(ge=0)] = None
     use_cache: bool | None = None
 
 
@@ -78,12 +77,19 @@ class ResearchRunner:
         if self.search is None and not credentials.tavily.get_secret_value():
             raise ResearchFailure("configuration")
 
-        credits = (
-            settings.max_tavily_credits if options.max_credits is None else options.max_credits
+        credits = settings.max_tavily_credits
+        if options.max_credits is not None:
+            credits = min(credits, options.max_credits)
+        usd = (
+            settings.max_usd
+            if options.max_cost is None
+            else min(settings.max_usd, options.max_cost)
         )
-        usd = settings.max_usd if options.max_cost is None else options.max_cost
-        limit = Amount(credits, int(Decimal(str(usd)) * 1_000_000_000))
-        ledger = SpendLedger(settings.ledger_path)
+        limit = usd_amount(credits, usd)
+        ledger = SpendLedger(
+            settings.ledger_path,
+            usd_amount(settings.max_total_tavily_credits, settings.max_total_usd),
+        )
         run_id = str(uuid4())
         live = self.llm is None or self.search is None
         nebius = NebiusClient(credentials.nebius.get_secret_value()) if self.llm is None else None

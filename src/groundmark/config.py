@@ -16,8 +16,10 @@ class Settings(BaseSettings):
 
     model: Literal[MODEL] = Field(MODEL, validation_alias="NEBIUS_MODEL")
     max_rounds: Annotated[int, Field(ge=1, le=2)] = 2
-    max_tavily_credits: Annotated[int, Field(ge=0, le=6)] = 6
-    max_usd: Annotated[float, Field(ge=0, le=0.15)] = 0.15
+    max_tavily_credits: Annotated[int, Field(ge=0)] = 6
+    max_usd: Annotated[float, Field(ge=0)] = 0.15
+    max_total_tavily_credits: Annotated[int, Field(ge=0)] = 1000
+    max_total_usd: Annotated[float, Field(ge=0)] = 5.0
     thinking_on_timeout: Annotated[float, Field(gt=0)] = 90
     thinking_off_timeout: Annotated[float, Field(gt=0)] = 45
     tavily_timeout: Annotated[float, Field(gt=0, le=120)] = 30

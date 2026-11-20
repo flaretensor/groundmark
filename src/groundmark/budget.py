@@ -4,14 +4,11 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
-SESSION_CREDITS = 150
-SESSION_NANOS = 3_000_000_000
-LIVE_RUN_LIMIT = 12
-RUN_CREDITS = 6
-RUN_NANOS = 150_000_000
+NANOS_PER_USD = 1_000_000_000
 
 
 class BudgetRefused(Exception):
@@ -34,13 +31,14 @@ class Amount:
         return self.credits > limit.credits or self.nanos > limit.nanos
 
 
-SESSION_LIMIT = Amount(SESSION_CREDITS, SESSION_NANOS)
-DEFAULT_RUN_LIMIT = Amount(RUN_CREDITS, RUN_NANOS)
+def usd_amount(credits: int, usd: float) -> Amount:
+    return Amount(credits, int(Decimal(str(usd)) * NANOS_PER_USD))
 
 
 class SpendLedger:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, total_limit: Amount):
         self.path = path
+        self.total_limit = total_limit
 
     @contextmanager
     def _locked(self) -> Iterator[tuple[list[dict], object]]:
@@ -82,24 +80,24 @@ class SpendLedger:
             return max(
                 0,
                 min(
-                    min(limit.credits, RUN_CREDITS) - self._used(rows, run_id).credits,
-                    SESSION_CREDITS - self._used(rows).credits,
+                    limit.credits - self._used(rows, run_id).credits,
+                    self.total_limit.credits - self._used(rows).credits,
                 ),
             )
 
     def start(self, run_id: str) -> None:
         with self._locked() as (rows, file):
-            if sum(row["event"] == "start" for row in rows) >= LIVE_RUN_LIMIT:
-                raise BudgetRefused("live run limit reached")
+            used = self._used(rows)
+            if used.credits >= self.total_limit.credits or used.nanos >= self.total_limit.nanos:
+                raise BudgetRefused("total provider budget reached")
             self._append(file, {"event": "start", "run_id": run_id})
 
     def reserve(self, run_id: str, operation: str, amount: Amount, limit: Amount) -> str:
         call_id = uuid4().hex
-        limit = Amount(min(limit.credits, RUN_CREDITS), min(limit.nanos, RUN_NANOS))
         with self._locked() as (rows, file):
             if (self._used(rows, run_id) + amount).exceeds(limit) or (
                 self._used(rows) + amount
-            ).exceeds(SESSION_LIMIT):
+            ).exceeds(self.total_limit):
                 raise BudgetRefused("estimated provider budget reached")
             self._append(
                 file,

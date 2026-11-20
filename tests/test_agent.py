@@ -83,6 +83,15 @@ def test_credit_enforcement_keeps_partial_results(settings):
     assert search.requests == ["first"]
 
 
+def test_request_options_cannot_raise_configured_run_limit(settings):
+    llm = ScriptedLLM(Plan=[{"queries": ["first", "second"], "rationale": "More detail."}])
+    search = ScriptedSearch([snippet()])
+    capped = settings.model_copy(update={"max_tavily_credits": 1})
+    result = ResearchRunner(capped, llm=llm, search=search).run("When?", Options(max_credits=100))
+    assert result.trace.stop_reason == "budget"
+    assert search.requests == ["first"]
+
+
 def test_unissued_ids_and_never_publish_unverified_summary(settings):
     llm = ScriptedLLM(
         Plan=[plan()],
