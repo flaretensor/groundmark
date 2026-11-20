@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Keep interpreter, tooling and model writes in the Groundmark workspace.
-groundmark_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# BASH_SOURCE is empty in zsh; %x is zsh's path of the sourced file.
+groundmark_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)"
 export UV_CACHE_DIR="$groundmark_root/.cache/uv"
 export HF_HOME="$groundmark_root/.cache/huggingface"
 export UV_PYTHON_INSTALL_DIR="$groundmark_root/.cache/python"
