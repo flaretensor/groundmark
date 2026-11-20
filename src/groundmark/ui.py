@@ -1,5 +1,9 @@
 import re
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from html import escape as html_escape
+from importlib.resources import files
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 import streamlit as st
@@ -11,6 +15,7 @@ from groundmark.research import EXAMPLES
 from groundmark.sources import canonical_url
 
 TITLE = "Groundmark"
+FAVICON = Path(str(files("groundmark") / "assets" / "favicon.png"))
 SUBTITLE = (
     "Ask a question about anything on the web. "
     "Each claim in the answer is checked against its sources."
@@ -38,7 +43,7 @@ NO_SOURCES = "Search returned no usable sources for this question."
 BUDGET = "Stopped early because the run budget was reached."
 TRUNCATED = "The model ran out of output tokens before finishing."
 PROVIDER = "A provider request failed. The Search details tab has more."
-GAPS = "Not found in the sources:"
+GAPS = "Not settled by the sources:"
 
 PROGRESS = {
     "plan": "Planning searches…",
@@ -64,7 +69,7 @@ VERDICT = {
 QUOTES = {
     "exact": "exact quote found in the source",
     "normalized": "quote found after normalizing spacing and punctuation",
-    "missing": "quote not found in the source, so the verdict was lowered",
+    "missing": "",
     "not_applicable": "",
 }
 SCOPE = {"snippet": "Checked against the search snippet", "page": "Checked against the full page"}
@@ -98,10 +103,12 @@ STYLES = """<style>
     .st-key-answer_stats [data-testid="stCaptionContainer"] p{font-size:13px}
     [data-testid="stExpanderDetails"] [data-testid="stCaptionContainer"] p{font-size:13px;
         color:#5f6368!important}
-    .st-key-answer_text [data-testid="stMarkdownContainer"] :is(p,ul,ol,li){line-height:1.5}
+    [data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] :is(p,li){
+        line-height:1.45}
     .st-key-answer_text [data-testid="stMarkdownContainer"] p{margin-bottom:.6rem}
     [data-testid="stTooltipIcon"],[data-testid="stTooltipIcon"] button{color:#5f6368;opacity:1}
     [role="tooltip"] p{margin-bottom:0}
+    [role="tooltip"] [data-testid="stMarkdownContainer"]{margin-bottom:0}
     [role="tooltip"] p+p{margin-top:.5em}
     [data-testid="stTextAreaRootElement"]{background:#fff;border:1px solid #c7cace;
         border-radius:16px;box-shadow:0 2px 8px #1f1f1f0a}
@@ -123,7 +130,10 @@ STYLES = """<style>
     [data-testid="stExpander"] blockquote{border-left:3px solid #df2f1f;margin:.25rem 0;
         padding:.1rem .75rem}
     [data-testid="stExpander"] blockquote p{color:#1f1f1f}
-    [data-testid="stExpanderDetails"] [data-testid="stVerticalBlock"]{gap:.45rem}
+    [data-testid="stExpanderDetails"] [data-testid="stVerticalBlock"]{gap:.4rem}
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"]{margin-bottom:0}
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:15px;
+        margin-bottom:0}
     [data-testid="stExpanderDetails"] hr{margin:.5rem 0}
     .st-key-examples .stButton button{background:#fff;color:#1f1f1f;border:1px solid #dfe1e4;
         border-radius:10px;text-align:left}
@@ -180,9 +190,31 @@ def _numbers(result: ResearchResult) -> dict[str, int]:
 
 def _plain(text: str, numbers: dict[str, int]) -> str:
     """Replace internal source IDs that the model wrote into free text."""
-    return MENTION.sub(
-        lambda match: f"source {numbers[match[1]]}" if match[1] in numbers else match[0], text
-    )
+
+    def replace(match: re.Match) -> str:
+        if match[1] not in numbers:
+            return match[0]
+        before = text[: match.start()].rstrip()
+        word = "Source" if not before or before[-1] in ".!?" else "source"
+        return f"{word} {numbers[match[1]]}"
+
+    return MENTION.sub(replace, text)
+
+
+def _date(value: str | None, with_time: bool = False) -> str:
+    if not value:
+        return ""
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            moment = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return value
+    text = f"{moment:%b} {moment.day}, {moment.year}"
+    if with_time and moment.tzinfo is not None:
+        text += f", {moment.astimezone(UTC):%H:%M} UTC"
+    return text
 
 
 def _chip(source_id: str, sources: dict[str, Source], numbers: dict[str, int]) -> str:
@@ -251,9 +283,18 @@ def _render_claim(
                 st.divider()
             chip = _chip(pair.source_id, sources, numbers)
             st.markdown(f"{chip} **{VERDICT[pair.verdict]}**")
-            if pair.evidence_quote:
+            lowered = pair.quote_match == "missing" and pair.raw_verdict != pair.verdict
+            if pair.evidence_quote and not lowered:
                 st.markdown(f"> {_escape(pair.evidence_quote)}")
             st.markdown(_escape(_plain(pair.reason, numbers)))
+            if lowered:
+                said = "contradicts" if pair.raw_verdict == "contradicted" else "supports"
+                st.caption(
+                    f"The checker said this source {said} the claim, but its quote isn't in "
+                    "the source text, so that verdict doesn't count."
+                )
+                if pair.evidence_quote:
+                    st.caption(f"Unverified quote: “{_escape(pair.evidence_quote)}”")
             notes = [SCOPE[pair.evidence_scope]]
             if QUOTES[pair.quote_match]:
                 notes.append(QUOTES[pair.quote_match])
@@ -268,9 +309,9 @@ def _render_source(index: int, number: int, source: Source, read: bool) -> None:
         title += f" · {_escape(domain)}"
     with st.expander(title, key=f"source_{index}"):
         details = ["Read for the answer" if read else "Retrieved, not read for the answer"]
-        if source.published_date:
-            details.append(f"published {source.published_date}")
-        details.append(f"retrieved {source.retrieved_at}")
+        if published := _date(source.published_date):
+            details.append(f"published {published}")
+        details.append(f"retrieved {_date(source.retrieved_at, with_time=True)}")
         if source.evidence_scope == "page":
             details.append("full page fetched")
         st.caption(" · ".join(_escape(item) for item in details))
@@ -283,6 +324,11 @@ def _render_result(result: ResearchResult) -> None:
     sources = {source.source_id: source for source in result.sources}
     numbers = _numbers(result)
     trace = result.trace
+    st.subheader(
+        "Answer",
+        anchor=False,
+        help="Built only from claims that passed the check. Each number opens its source.",
+    )
     if result.summary:
         with st.container(key="answer_text"):
             st.markdown(_cited(result.summary, sources, numbers))
@@ -298,6 +344,7 @@ def _render_result(result: ResearchResult) -> None:
     if result.claims:
         st.subheader(
             "Claims",
+            anchor=False,
             help=(
                 "Open a claim to see how each source was judged: the verdict, the quote the "
                 "checker relied on and its reason. Not supported means the retrieved text "
@@ -310,6 +357,7 @@ def _render_result(result: ResearchResult) -> None:
     if result.conflicts:
         st.subheader(
             "Conflicts",
+            anchor=False,
             help="Points where sources disagree. They are shown here and kept out of the answer.",
         )
         with st.container(key="conflicts"):
@@ -334,6 +382,7 @@ def _render_result(result: ResearchResult) -> None:
         read_count = sum(source.source_id in read_ids for source in result.sources)
         st.subheader(
             "Sources",
+            anchor=False,
             help=(
                 "Every search result kept for this run. Claims were written and checked only "
                 "against the sources read for the answer."
@@ -360,6 +409,7 @@ def _render_trace(result: ResearchResult | None) -> None:
 
     st.subheader(
         "Searches",
+        anchor=False,
         help="The queries sent to Tavily and the agent's decision after each round.",
     )
     for number, search in enumerate(trace.rounds):
@@ -371,7 +421,7 @@ def _render_trace(result: ResearchResult | None) -> None:
             reason = _escape(_plain(assessment.stop_reason, numbers))
             st.caption(f"{assessment.decision.capitalize()}: {reason}")
 
-    st.subheader("Timing", help="Wall-clock time of each stage in this run.")
+    st.subheader("Timing", help="Wall-clock time of each stage in this run.", anchor=False)
     rows = [
         {"Stage": STAGES.get(name, name), "Time": f"{trace.stage_latency_ms[name] / 1000:.2f} s"}
         for name in [*STAGES, *sorted(set(trace.stage_latency_ms) - set(STAGES))]
@@ -382,6 +432,7 @@ def _render_trace(result: ResearchResult | None) -> None:
 
     st.subheader(
         "Usage",
+        anchor=False,
         help=(
             "Tavily credits and model tokens for this run. The cost is estimated from the "
             "token counts and list prices, not taken from an invoice."
@@ -445,16 +496,20 @@ def _run(client: ResearchClient, question: str) -> None:
 
 def _render_research(client: ResearchClient | None) -> None:
     with st.form("ask_form", border=False):
-        question = st.text_area(
-            "Question",
-            placeholder=PLACEHOLDER,
-            height=80,
-            max_chars=500,
-            key="question",
-            label_visibility="collapsed",
-        )
-        with st.container(horizontal=True, horizontal_alignment="right"):
-            submitted = st.form_submit_button("Ask", type="primary", on_click=_begin)
+        question_col, submit_col = st.columns([6, 1], vertical_alignment="bottom", gap="small")
+        with question_col:
+            question = st.text_area(
+                "Question",
+                placeholder=PLACEHOLDER,
+                height=80,
+                max_chars=500,
+                key="question",
+                label_visibility="collapsed",
+            )
+        with submit_col:
+            submitted = st.form_submit_button(
+                "Ask", type="primary", on_click=_begin, width="stretch"
+            )
 
     if not st.session_state.get("asked_once"):
         with st.container(key="examples"):
@@ -488,9 +543,14 @@ def _render_research(client: ResearchClient | None) -> None:
 
 
 def main(client: ResearchClient | None = None) -> None:
-    st.set_page_config(page_title=TITLE, layout="centered", initial_sidebar_state="collapsed")
+    st.set_page_config(
+        page_title=TITLE,
+        page_icon=FAVICON,
+        layout="centered",
+        initial_sidebar_state="collapsed",
+    )
     st.html(STYLES)
-    st.title(TITLE)
+    st.title(TITLE, anchor=False)
     st.caption(SUBTITLE, help=HEADER_HELP)
     ask_tab, details_tab = st.tabs(["Ask", "Search details"])
     with ask_tab:

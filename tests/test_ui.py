@@ -46,6 +46,7 @@ def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
     assert app.text_area[0].value == EXAMPLES[0]
     assert not [button for button in app.button if button.key == "example_0"]
     assert [item.value for item in app.subheader] == [
+        "Answer",
         "Claims",
         "Conflicts",
         "Sources",
@@ -58,7 +59,7 @@ def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
     assert '"Example source")' in answer
     assert not app.info
     assert any(
-        row.value == "**Not found in the sources:**\n\n- Costs of \\$5 and \\$6 \\| tax."
+        row.value == "**Not settled by the sources:**\n\n- Costs of \\$5 and \\$6 \\| tax."
         for row in app.markdown
     )
     labels = [item.label for item in app.expander]
@@ -74,7 +75,7 @@ def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
     assert "Found by checking claims against sources" in captions
     assert any(row.value.startswith("Tokyo has 14 million residents. [1](") for row in app.markdown)
     assert any(
-        row.value.startswith("**Opening date** · source 1 and source 2 give different dates. [1](")
+        row.value.startswith("**Opening date** · Source 1 and source 2 give different dates. [1](")
         for row in app.markdown
     )
     assert any(row.startswith("1 of 1 claim supported · ") for row in captions)
@@ -107,6 +108,7 @@ def test_unanswerable_shows_one_message_and_reason(outcome):
     assert [item.value for item in app.info] == ["This can't be known yet as of today's date."]
     assert "The 2030 prize has not been awarded yet." in [row.value for row in app.caption]
     assert "Claims" not in [item.value for item in app.subheader]
+    assert app.subheader[0].value == "Answer"
 
 
 def test_escape_blocks_markdown_structure():
@@ -143,6 +145,37 @@ def test_sources_are_numbered_in_answer_order(outcome):
     outcome.trace.synthesis_source_ids = ["S4", "S3", "S2"]
     numbers = _numbers(outcome)
     assert numbers == {"S3": 1, "S2": 2, "S4": 3, "S1": 4}
-    assert _plain("S4 and [S1] differ; S9 and SS2 are unknown.", numbers) == (
-        "source 3 and source 4 differ; S9 and SS2 are unknown."
+    assert _plain("S4 and [S1] differ; S9 and SS2 are unknown. S3 too.", numbers) == (
+        "Source 3 and source 4 differ; S9 and SS2 are unknown. Source 1 too."
+    )
+
+
+def test_favicon_ships_with_the_package():
+    from groundmark.ui import FAVICON
+
+    assert FAVICON.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_lowered_verdict_hides_quote_and_dates_are_readable(outcome):
+    pair = outcome.claims[0].pairs[0]
+    outcome.claims[0].pairs[0] = pair.model_copy(
+        update={
+            "verdict": "not_supported",
+            "raw_verdict": "supported",
+            "quote_match": "missing",
+            "evidence_quote": "made up ... quote",
+        }
+    )
+    outcome.sources[0].published_date = "Thu, 25 Jun 2026 00:00:00 GMT"
+    outcome.sources[0].retrieved_at = "2026-11-20T20:48:54.506036+00:00"
+    app = AppTest.from_file(UI)
+    app.session_state["result"] = outcome
+    app.run()
+    assert not app.exception
+    assert not any(row.value.startswith("> ") for row in app.markdown)
+    captions = [row.value for row in app.caption]
+    assert "Unverified quote: “made up ... quote”" in captions
+    assert any("said this source supports the claim" in row for row in captions)
+    assert any(
+        "published Jun 25, 2026 · retrieved Nov 20, 2026, 20\\:48 UTC" in row for row in captions
     )
