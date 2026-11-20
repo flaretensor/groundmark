@@ -83,6 +83,14 @@ def test_http_client_parses_sse_and_surfaces_busy(outcome):
     busy = HttpClient("http://test", transport=httpx.MockTransport(lambda _: httpx.Response(503)))
     assert list(busy.stream("When?")) == [RunError("busy")]
 
+    unconfigured = HttpClient(
+        "http://test",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(503, json={"detail": {"kind": "configuration"}})
+        ),
+    )
+    assert list(unconfigured.stream("When?")) == [RunError("configuration")]
+
 
 def test_metrics_cover_sse_results_without_question_labels(outcome):
     with TestClient(create_app(MockRunner(outcome))) as client:

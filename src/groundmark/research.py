@@ -21,9 +21,9 @@ from groundmark.telemetry import RunTelemetry, mlflow_headers
 from groundmark.verification import NebiusVerifier, Verifier
 
 EXAMPLES = (
-    "What are the key specifications and release timeline of the NVIDIA GB300 NVL72?",
-    "How do the latest EU AI Act enforcement milestones in 2026 affect general-purpose AI providers?",
-    "What was the official keynote price of the Apple iPhone 20 Ultra?",
+    "What was NVIDIA's most recent quarterly data center revenue?",
+    "What is the population of Tokyo?",
+    "Who won the 2030 Nobel Prize in Physics?",
 )
 
 

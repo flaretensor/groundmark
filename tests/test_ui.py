@@ -5,8 +5,10 @@ from streamlit.testing.v1 import AppTest
 from groundmark.models import ConflictResult, Progress
 from groundmark.research import EXAMPLES
 
+UI = Path("src/groundmark/ui.py").resolve()
 
-def test_screen_renders_claims_and_trace(monkeypatch, outcome):
+
+def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
     outcome.missing_information = ["Costs of $5 and $6 | tax."]
     outcome.sources.append(
         outcome.sources[0].model_copy(update={"source_id": "S2", "title": "Unread source"})
@@ -14,7 +16,7 @@ def test_screen_renders_claims_and_trace(monkeypatch, outcome):
     outcome.conflicts.append(
         ConflictResult(
             topic="Opening date",
-            description="The published timelines disagree.",
+            description="S1 and [S2] give different dates.",
             source_ids=["S1"],
             origin="synthesis",
         )
@@ -35,51 +37,76 @@ def test_screen_renders_claims_and_trace(monkeypatch, outcome):
             yield outcome
 
     monkeypatch.setattr("groundmark.client.LocalClient", Client)
-    app = AppTest.from_file(Path("src/groundmark/ui.py").resolve()).run()
+    app = AppTest.from_file(UI).run()
     assert not app.exception
     assert app.title[0].value == "Groundmark"
-    app.button[1].click().run()
-    assert app.text_input[0].value == EXAMPLES[0]
-    app.button[0].click().run()
+    assert [tab.label for tab in app.tabs] == ["Ask", "Search details"]
+    app.button(key="example_0").click().run()
     assert not app.exception
+    assert app.text_area[0].value == EXAMPLES[0]
+    assert not [button for button in app.button if button.key == "example_0"]
     assert [item.value for item in app.subheader] == [
-        "Answer",
-        "Claim verification",
-        "Conflicts detected",
+        "Claims",
+        "Conflicts",
+        "Sources",
+        "Searches",
+        "Timing",
+        "Usage",
     ]
-    assert any("example.org" in row.value for row in app.markdown)
+    answer = app.markdown[0].value
+    assert answer.startswith("The plant opened in 2024.\u00a0[1](https://example.org/")
+    assert '"Example source")' in answer
     assert not app.info
     assert any(
-        row.value == "**Not found in retrieved sources:**\n\n- Costs of \\$5 and \\$6 \\| tax."
+        row.value == "**Not found in the sources:**\n\n- Costs of \\$5 and \\$6 \\| tax."
         for row in app.markdown
     )
-    assert any(row.value.endswith(" · read for the answer") for row in app.markdown)
-    assert any(row.value.endswith(" · retrieved, not read for the answer") for row in app.markdown)
+    labels = [item.label for item in app.expander]
+    assert labels[0] == ":green-badge[Supported] The plant opened in 2024."
+    assert labels[1] == ":primary-background[**1**] Example source · example.org"
+    assert labels[2] == ":primary-background[**2**] Unread source · example.org"
+    assert "Full trace (JSON)" not in labels
+    captions = [row.value for row in app.caption]
+    assert "1 read for the answer · 1 retrieved only" in captions
+    assert "Read for the answer · retrieved " in " ".join(captions)
+    assert any(row.startswith("Retrieved, not read for the answer") for row in captions)
+    assert "Noted by the model while writing the answer, not checked" in captions
+    assert "Found by checking claims against sources" in captions
+    assert any(row.value.startswith("Tokyo has 14 million residents. [1](") for row in app.markdown)
     assert any(
-        row.value == "Noted by the model while writing the answer, not checked"
-        for row in app.caption
+        row.value.startswith("**Opening date** · source 1 and source 2 give different dates. [1](")
+        for row in app.markdown
     )
-    assert any(row.value == "Tokyo has 14 million residents." for row in app.markdown)
-    assert any(row.value == "Found by checking claims against sources" for row in app.caption)
-    assert [item.label for item in app.expander] == ["Sources", "Research trace"]
-    assert "sufficient" in app.json[0].value
+    assert any(row.startswith("1 of 1 claim supported · ") for row in captions)
+    assert not any("Tavily" in row or "$" in row for row in captions)
+    assert not any("S1" in row.value or "S2" in row.value for row in app.markdown)
+    assert any(row.value == "> opened in 2024" for row in app.markdown)
+    assert not app.json
+    assert any(
+        row.value == "1 search round · stopped because the sources covered the question"
+        for row in app.markdown
+    )
+    assert any(
+        row.value.startswith("**Round 1** ·") and row.value.endswith("· 1 new source")
+        for row in app.markdown
+    )
+    assert not any(row.value.startswith("Run ") for row in app.caption)
 
 
-def test_unanswerable_message_accompanies_insufficient_evidence(outcome):
+def test_unanswerable_shows_one_message_and_reason(outcome):
     outcome.summary = ""
     outcome.claims = []
     outcome.insufficient_evidence = True
+    outcome.missing_information = ["The 2030 prize has not been awarded yet."]
     outcome.trace.stop_reason = "unanswerable"
     outcome.trace.synthesis_source_ids = []
-    app = AppTest.from_file(Path("src/groundmark/ui.py").resolve())
+    app = AppTest.from_file(UI)
     app.session_state["result"] = outcome
     app.run()
     assert not app.exception
-    assert [item.value for item in app.info] == [
-        "Insufficient evidence in the retrieved sources to fully answer this question.",
-        "This can't be known yet as of today's date.",
-    ]
-    assert [item.value for item in app.subheader] == ["Answer"]
+    assert [item.value for item in app.info] == ["This can't be known yet as of today's date."]
+    assert "The 2030 prize has not been awarded yet." in [row.value for row in app.caption]
+    assert "Claims" not in [item.value for item in app.subheader]
 
 
 def test_escape_blocks_markdown_structure():
@@ -88,9 +115,34 @@ def test_escape_blocks_markdown_structure():
     assert _escape("Title\n===\n- item\n+ more!") == "Title\n\\=\\=\\=\n\\- item\n\\+ more\\!"
 
 
-def test_rejects_long_question_before_start():
-    app = AppTest.from_file(Path("src/groundmark/ui.py").resolve()).run()
-    app.text_input[0].set_value("a" * 501).run()
+def test_empty_question_does_not_start(monkeypatch):
+    class Client:
+        def stream(self, question):
+            raise AssertionError("research should not start")
+
+    monkeypatch.setattr("groundmark.client.LocalClient", Client)
+    app = AppTest.from_file(UI).run()
     app.button[0].click().run()
-    assert [error.value for error in app.error] == ["Questions are limited to 500 characters."]
+    assert [warning.value for warning in app.warning] == ["Enter a question first."]
+    assert app.text_area[0].proto.max_chars == 500
+    assert not app.error
     assert not app.exception
+
+
+def test_sources_are_numbered_in_answer_order(outcome):
+    from groundmark.ui import _numbers, _plain
+
+    first = outcome.sources[0]
+    outcome.sources = [
+        first.model_copy(update={"source_id": "S1"}),
+        first.model_copy(update={"source_id": "S2"}),
+        first.model_copy(update={"source_id": "S3"}),
+        first.model_copy(update={"source_id": "S4"}),
+    ]
+    outcome.summary = "First. [S3]\n\nSecond. [S2] [S3]"
+    outcome.trace.synthesis_source_ids = ["S4", "S3", "S2"]
+    numbers = _numbers(outcome)
+    assert numbers == {"S3": 1, "S2": 2, "S4": 3, "S1": 4}
+    assert _plain("S4 and [S1] differ; S9 and SS2 are unknown.", numbers) == (
+        "source 3 and source 4 differ; S9 and SS2 are unknown."
+    )

@@ -11,6 +11,11 @@ from groundmark.models import ResearchResult
 from groundmark.research import Options, ResearchFailure, ResearchRunner
 from groundmark.sources import private_json
 
+FAILURES = {
+    "configuration": "Research could not start: set NEBIUS_API_KEY and TAVILY_API_KEY in .env.",
+    "invalid_question": "Research could not start: the question must be 1 to 500 characters.",
+}
+
 
 def _ask_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("question")
@@ -26,7 +31,7 @@ def _write_text(result: ResearchResult) -> None:
     if result.summary:
         print(result.summary)
     if result.insufficient_evidence:
-        print("Insufficient evidence in the retrieved sources to fully answer this question.")
+        print("The retrieved sources don't fully answer this question.")
     sources = {source.source_id: source.url for source in result.sources}
     for row in result.claims:
         print(f"{row.claim.claim_id} {row.status}  {row.claim.text}")
@@ -61,7 +66,7 @@ def _ask(args, runner=None) -> int:
         print("Invalid question or options.", file=sys.stderr)
         return 2
     except ResearchFailure as error:
-        print(f"Research could not start ({error}).", file=sys.stderr)
+        print(FAILURES.get(str(error), f"Research failed ({error})."), file=sys.stderr)
         return 2
     if args.trace_out:
         private_json(args.trace_out, result.trace.model_dump(mode="json"))

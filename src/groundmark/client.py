@@ -83,8 +83,16 @@ class HttpClient:
                 ) as client,
                 client.stream("POST", "/research/stream", json=payload) as response,
             ):
-                if response.status_code in {422, 503}:
-                    yield RunError("invalid_question" if response.status_code == 422 else "busy")
+                if response.status_code == 422:
+                    yield RunError("invalid_question")
+                    return
+                if response.status_code == 503:
+                    response.read()
+                    try:
+                        kind = str(response.json()["detail"]["kind"])
+                    except (ValueError, KeyError, TypeError):
+                        kind = "busy"
+                    yield RunError(kind)
                     return
                 response.raise_for_status()
                 for name, data in parse_sse(response.iter_lines()):
