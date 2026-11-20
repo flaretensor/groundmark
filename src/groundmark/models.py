@@ -18,7 +18,7 @@ class Plan(StrictOutput):
 
 
 class Assessment(StrictOutput):
-    decision: Literal["sufficient", "refine"]
+    decision: Literal["sufficient", "refine", "unanswerable"]
     followup_query: str
     stop_reason: str
 

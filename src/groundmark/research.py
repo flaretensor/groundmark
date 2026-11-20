@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import uuid4
 
@@ -127,6 +128,7 @@ class ResearchRunner:
             self.verifier_factory(calls),
             options.max_rounds or settings.max_rounds,
             settings.use_cache if options.use_cache is None else options.use_cache,
+            today=datetime.now(UTC).date().isoformat(),
         )
         try:
             result = self._run_graph(question, context, live)
