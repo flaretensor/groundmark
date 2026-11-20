@@ -16,6 +16,7 @@ from groundmark.verification import aggregate
 
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 RERANKER_REVISION = "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+PAGE_CHAR_LIMIT = 200_000
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,12 @@ def needs_extraction(state: State) -> bool:
     )
 
 
+def _cap_page(text: str, source_id: str, notes: list[str]) -> str:
+    if len(text) > PAGE_CHAR_LIMIT:
+        notes.append(f"{source_id}: page truncated to {PAGE_CHAR_LIMIT} characters")
+    return text[:PAGE_CHAR_LIMIT]
+
+
 def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> dict[str, str]:
     pages = {}
     wanted = {}
@@ -79,10 +86,12 @@ def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> di
         if context.use_cache and path.is_file():
             try:
                 text = json.loads(path.read_text(encoding="utf-8"))["text"]
-                if isinstance(text, str) and text.strip():
-                    pages[source.source_id] = text
-                    notes.append(f"{source.source_id}: reused a private extraction snapshot")
-                    continue
+                if isinstance(text, str):
+                    text = _cap_page(text, source.source_id, notes)
+                    if text.strip():
+                        pages[source.source_id] = text
+                        notes.append(f"{source.source_id}: reused a private extraction snapshot")
+                        continue
             except (ValueError, KeyError, TypeError):
                 pass
         wanted[url] = (source, path)
@@ -98,7 +107,9 @@ def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> di
         if canonical not in wanted or not isinstance(raw, str) or not raw.strip():
             continue
         source, path = wanted[canonical]
-        text = context.safe(raw)
+        text = _cap_page(context.safe(raw), source.source_id, notes)
+        if not text.strip():
+            continue
         pages[source.source_id] = text
         private_json(
             path,

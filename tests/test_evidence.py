@@ -1,3 +1,4 @@
+import json
 from functools import partial
 
 from conftest import ScriptedLLM, ScriptedSearch, snippet
@@ -17,6 +18,8 @@ def test_source_exact_chunks_with_offsets():
 
 def test_extract_retries_verification_with_claim_specific_ranked_windows(settings):
     content = "A plant was planned." + "x" * 1800 + " The plant opened in 2024."
+    beyond_cap = "Text past the page limit."
+    content = content.ljust(200_000, "x") + beyond_cap
     llm = ScriptedLLM(
         Plan=[{"queries": ["plant"], "rationale": "Find the date."}],
         Synthesis=[
@@ -62,6 +65,7 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
 
     class Embedder:
         def embed(self, texts, timeout):
+            assert all(beyond_cap not in text for text in texts)
             return EmbeddingResponse(
                 [[1, float("2024" in text)] for text in texts], TokenUsage(input=70)
             )
@@ -87,7 +91,9 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
     ]
     assert len(result.trace.extraction_attempts[1].evidence_preview) <= 600
     assert content not in result.model_dump_json()
-    assert len(list((settings.cache_dir / "extract").glob("*.json"))) == 1
+    (snapshot,) = (settings.cache_dir / "extract").glob("*.json")
+    assert json.loads(snapshot.read_text())["text"] == content[:200_000]
+    assert "S1: page truncated to 200000 characters" in result.trace.notes
     assert result.trace.tavily_credits == 2
     date_line = llm.requests[0].prompt.splitlines()[0]
     assert llm.requests[-1].prompt.startswith(f"{date_line}\nQuestion: When?\nClaims:\n")
