@@ -145,6 +145,7 @@ opentelemetry-api==1.45.2
     #   groundmark
     #   opentelemetry-exporter-http-transport
     #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-exporter-prometheus
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
 opentelemetry-exporter-http-transport==0.66b2
@@ -155,6 +156,8 @@ opentelemetry-exporter-otlp-proto-common==1.45.2
     # via opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-http==1.45.2
     # via groundmark
+opentelemetry-exporter-prometheus==0.66b2
+    # via groundmark
 opentelemetry-proto==1.45.2
     # via
     #   opentelemetry-exporter-otlp-proto-common
@@ -164,6 +167,7 @@ opentelemetry-sdk==1.45.2
     #   groundmark
     #   opentelemetry-exporter-otlp-common
     #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-exporter-prometheus
 opentelemetry-semantic-conventions==0.66b2
     # via opentelemetry-sdk
 orjson==3.13.0
@@ -183,6 +187,10 @@ pandas==3.1.1
     # via streamlit
 pillow==13.0.0
     # via streamlit
+prometheus-client==0.26.0
+    # via
+    #   groundmark
+    #   opentelemetry-exporter-prometheus
 protobuf==7.36.2
     # via
     #   googleapis-common-protos

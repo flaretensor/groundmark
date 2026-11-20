@@ -213,3 +213,25 @@ def test_cli_json_and_trace(tmp_path, outcome, capsys):
     assert json.loads(path.read_text())["tavily_credits"] == 1
     assert main(["ask", "When?"], Runner()) == 0
     assert "https://example.org/" in capsys.readouterr().out
+
+
+def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_ids(settings):
+    llm = ScriptedLLM(
+        Plan=[{"queries": ["first", "second"], "rationale": "Two aspects."}],
+        Synthesis=[synthesis({"claim_id": "C1", "text": "A claim.", "source_ids": ["S8"]})],
+    )
+
+    def result(index):
+        return snippet(
+            url=f"https://example.org/{index}",
+            content=f"Source {index}. " + "text " * 300 + "omitted",
+        )
+
+    search = ScriptedSearch([result(i) for i in range(5)], [result(i) for i in range(5, 8)])
+    result = ResearchRunner(settings, llm=llm, search=search).run("When?", Options(max_rounds=1))
+    prompt = llm.requests[-1].prompt
+    assert len(result.sources) == 8
+    assert result.trace.synthesis_source_ids == ["S1", "S6", "S2", "S3", "S4", "S5"]
+    assert prompt.count("</untrusted_source>") == 6 and "omitted" not in prompt
+    assert result.trace.stripped_source_ids == ["S8"]
+    assert result.claims[0].status == "not_supported"

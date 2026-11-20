@@ -128,6 +128,7 @@ class ResearchTrace(BaseModel):
     pair_verdict_counts: dict[str, int] = Field(default_factory=dict)
     quote_match_counts: dict[str, int] = Field(default_factory=dict)
     stripped_source_ids: list[str] = Field(default_factory=list)
+    synthesis_source_ids: list[str] = Field(default_factory=list)
     extraction_attempts: list[PairVerification] = Field(default_factory=list)
     extracted_source_ids: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

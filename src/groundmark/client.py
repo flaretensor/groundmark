@@ -26,12 +26,16 @@ def start_events(
     question: str,
     options: Options | None = None,
     on_complete: Callable[[], None] | None = None,
+    on_result: Callable[[ResearchResult], None] | None = None,
 ) -> Iterator[ResearchEvent]:
     events: Queue[ResearchEvent | None] = Queue()
 
     def work():
         try:
-            events.put(runner.run(question, options, events.put))
+            result = runner.run(question, options, events.put)
+            if on_result:
+                on_result(result)
+            events.put(result)
         except ResearchFailure as error:
             events.put(RunError(str(error)))
         except Exception:

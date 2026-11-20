@@ -3,10 +3,12 @@ from threading import Lock
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import Field, field_validator
 
 from groundmark.client import RunError, start_events
+from groundmark.metrics import RunMetrics
 from groundmark.models import Progress, ResearchResult
 from groundmark.research import Options, ResearchFailure, ResearchRunner
 
@@ -39,6 +41,7 @@ def _sse(events):
 def create_app(runner: ResearchRunner | None = None) -> FastAPI:
     app = FastAPI(title="Groundmark")
     active = Lock()
+    metrics = RunMetrics()
     runner = runner or ResearchRunner()
 
     @app.exception_handler(RequestValidationError)
@@ -53,11 +56,17 @@ def create_app(runner: ResearchRunner | None = None) -> FastAPI:
     def health():
         return {"status": "ok"}
 
+    @app.get("/metrics")
+    def prometheus():
+        return Response(metrics.render(), media_type=CONTENT_TYPE_LATEST)
+
     @app.post("/research", response_model=ResearchResult)
     def research(request: ResearchRequest):
         take_slot()
         try:
-            return runner.run(request.question, request.options())
+            result = runner.run(request.question, request.options())
+            metrics.record(result)
+            return result
         except ResearchFailure as error:
             raise HTTPException(status_code=503, detail={"kind": str(error)}) from None
         except Exception:
@@ -69,7 +78,13 @@ def create_app(runner: ResearchRunner | None = None) -> FastAPI:
     def research_stream(request: ResearchRequest):
         take_slot()
         try:
-            events = start_events(runner, request.question, request.options(), active.release)
+            events = start_events(
+                runner,
+                request.question,
+                request.options(),
+                on_complete=active.release,
+                on_result=metrics.record,
+            )
         except RuntimeError:
             active.release()
             raise HTTPException(status_code=500, detail={"kind": "internal"}) from None

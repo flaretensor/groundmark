@@ -82,3 +82,16 @@ def test_http_client_parses_sse_and_surfaces_busy(outcome):
 
     busy = HttpClient("http://test", transport=httpx.MockTransport(lambda _: httpx.Response(503)))
     assert list(busy.stream("When?")) == [RunError("busy")]
+
+
+def test_metrics_cover_sse_results_without_question_labels(outcome):
+    with TestClient(create_app(MockRunner(outcome))) as client:
+        response = client.post("/research/stream", json={"question": "private demo question"})
+        assert response.status_code == 200
+        metrics = client.get("/metrics").text
+    assert "groundmark_runs_total{" in metrics and 'status="complete"' in metrics
+    assert "groundmark_run_latency_seconds_bucket{" in metrics
+    assert "groundmark_tavily_credits_total" in metrics
+    assert "groundmark_nebius_estimated_usd_total" in metrics
+    assert "groundmark_claim_statuses_total" in metrics
+    assert "private demo question" not in metrics
