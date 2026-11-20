@@ -89,3 +89,5 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
     assert content not in result.model_dump_json()
     assert len(list((settings.cache_dir / "extract").glob("*.json"))) == 1
     assert result.trace.tavily_credits == 2
+    date_line = llm.requests[0].prompt.splitlines()[0]
+    assert llm.requests[-1].prompt.startswith(f"{date_line}\nQuestion: When?\nClaims:\n")

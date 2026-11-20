@@ -384,7 +384,9 @@ def verify(state: State, context: GraphContext) -> State:
     if "synthesis" not in state or context.calls.usd_stopped:
         return {}
     output = Synthesis.model_validate(state["synthesis"])
-    pairs = context.verifier.verify(output.claims, _get_sources(state))
+    selected_ids = set(state.get("synthesis_sources", []))
+    sources = [source for source in _get_sources(state) if source.source_id in selected_ids]
+    pairs = context.verifier.verify(output.claims, sources, state["question"], context.today)
     return {
         "claims": [
             aggregate(

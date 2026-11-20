@@ -84,6 +84,7 @@ class PairVerification(BaseModel):
     reason: str
     evidence_scope: EvidenceScope = "snippet"
     evidence_preview: str = ""
+    cited: bool = True
 
 
 class ClaimResult(BaseModel):

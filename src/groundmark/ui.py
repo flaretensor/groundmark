@@ -103,7 +103,10 @@ def _render_result(result: ResearchResult) -> None:
                 st.markdown(f"{_link(pair.source_id, source.url)} · **{STATUS[pair.verdict]}**")
                 if pair.evidence_quote:
                     st.markdown(f"> {_escape(pair.evidence_quote)}")
-                st.caption(f"{QUOTES[pair.quote_match]} · {SCOPE[pair.evidence_scope]}")
+                citation_note = "" if pair.cited else " · not cited by the answer"
+                st.caption(
+                    f"{QUOTES[pair.quote_match]} · {SCOPE[pair.evidence_scope]}{citation_note}"
+                )
                 st.markdown(_escape(pair.reason))
 
     if result.conflicts:

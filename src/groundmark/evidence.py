@@ -130,6 +130,8 @@ def _attempt_page(
     claims: list[Claim],
     reranker: Reranker | None,
     notes: list[str],
+    *,
+    question: str,
 ) -> list[PairVerification]:
     chunks = chunk_page(page)
     try:
@@ -167,6 +169,8 @@ def _attempt_page(
                 scope="page",
                 full_text=page,
                 preview=selected[0].text,
+                question=question,
+                today=context.today,
             )
         )
         if context.calls.budget_stopped:
@@ -202,7 +206,13 @@ def extract_evidence(
             continue
         attempts.extend(
             _attempt_page(
-                context, source, pages[source.source_id], pending[source.source_id], reranker, notes
+                context,
+                source,
+                pages[source.source_id],
+                pending[source.source_id],
+                reranker,
+                notes,
+                question=state["question"],
             )
         )
         if context.calls.budget_stopped:
