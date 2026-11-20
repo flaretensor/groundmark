@@ -15,6 +15,7 @@ from groundmark.models import (
     Claim,
     ClaimResult,
     Conflict,
+    ConflictResult,
     Plan,
     Progress,
     ResearchResult,
@@ -415,16 +416,26 @@ def finalize(state: State, context: GraphContext) -> State:
             summary.append(f"{text} {references}")
         elif row.status == "conflicting":
             conflicts.append(
-                Conflict(
-                    topic=row.claim.claim_id,
+                ConflictResult(
+                    topic=row.claim.text[:120],
                     description=row.claim.text,
                     source_ids=[
                         pair.source_id
                         for pair in row.pairs
                         if pair.verdict in {"supported", "contradicted"}
                     ],
+                    origin="verification",
                 )
             )
+    if synthesis:
+        conflicts.extend(
+            ConflictResult(**conflict.model_dump(), origin="synthesis")
+            for conflict in synthesis.conflicts
+            if conflict.source_ids
+        )
+    unique_conflicts = {}
+    for conflict in conflicts:
+        unique_conflicts.setdefault((conflict.topic, conflict.description), conflict)
     notes.extend(
         f"{pair.claim_id}/{pair.source_id}: {pair.raw_verdict} downgraded because quote was missing"
         for pair in pairs
@@ -461,7 +472,7 @@ def finalize(state: State, context: GraphContext) -> State:
         insufficient_evidence=not summary or bool(synthesis and synthesis.insufficient_evidence),
         missing_information=synthesis.missing_information if synthesis else [],
         claims=claims,
-        conflicts=conflicts,
+        conflicts=list(unique_conflicts.values()),
         sources=sources,
         trace=trace,
     )

@@ -406,10 +406,21 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
     llm = SourceAwareLLM(
         Plan=[{"queries": ["first", "second"], "rationale": "Two aspects."}],
         Synthesis=[
-            synthesis(
-                {"claim_id": "C1", "text": text, "source_ids": ["S1"]},
-                {"claim_id": "C2", "text": unrelated_claim, "source_ids": ["S8"]},
-            )
+            {
+                **synthesis(
+                    {"claim_id": "C1", "text": text, "source_ids": ["S1"]},
+                    {"claim_id": "C2", "text": unrelated_claim, "source_ids": ["S8"]},
+                ),
+                "conflicts": [
+                    {"topic": text, "description": text, "source_ids": ["S1", "S2"]},
+                    {
+                        "topic": "Opening date",
+                        "description": "The reports give different dates.",
+                        "source_ids": ["S1", "S2"],
+                    },
+                    {"topic": "Unknown", "description": "No usable source.", "source_ids": ["S7"]},
+                ],
+            }
         ],
     )
 
@@ -427,7 +438,7 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
     assert len(result.sources) == 8
     assert result.trace.synthesis_source_ids == ["S1", "S6", "S2", "S3", "S4", "S5"]
     assert prompt.count("</untrusted_source>") == 6 and "omitted" not in prompt
-    assert result.trace.stripped_source_ids == ["S8"]
+    assert result.trace.stripped_source_ids == ["S8", "S7"]
     date_line = llm.requests[0].prompt.splitlines()[0]
     verifier_requests = [request for request in llm.requests if request.schema is PairJudgments]
     assert len(verifier_requests) == 6
@@ -448,6 +459,10 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
         ("S2", "contradicted", False),
     ]
     assert headcount.status == "not_supported" and headcount.pairs == []
+    assert [(row.topic, row.origin, row.source_ids) for row in result.conflicts] == [
+        (text, "verification", ["S1", "S2"]),
+        ("Opening date", "synthesis", ["S1", "S2"]),
+    ]
 
 
 def test_claim_text_cleanup_dated_prompt_and_partial_support(settings):

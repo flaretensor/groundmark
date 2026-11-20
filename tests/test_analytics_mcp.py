@@ -6,6 +6,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from groundmark.analytics import append_result, report
 from groundmark.mcp_server import build_server
+from groundmark.models import ConflictResult
 
 
 def test_parquet_append_is_idempotent_and_report_has_real_aggregates(tmp_path, outcome):
@@ -37,6 +38,16 @@ def test_parquet_append_is_idempotent_and_report_has_real_aggregates(tmp_path, o
 
 
 def test_mcp_in_memory_tool_listing_and_invocation(outcome):
+    outcome.conflicts = [
+        ConflictResult(
+            topic="Opening date",
+            description="The reported schedule differs from the announcement.",
+            source_ids=["S1"],
+            origin="synthesis",
+        )
+    ]
+    outcome.missing_information = ["The cost of the plant."]
+
     class Runner:
         def run(self, question, options):
             assert question == "When?"
@@ -53,6 +64,8 @@ def test_mcp_in_memory_tool_listing_and_invocation(outcome):
             content = result.structuredContent
             assert content["summary"] == outcome.summary
             assert content["claims"][0]["quotes"][0]["source_id"] == "S1"
+            assert content["conflicts"] == [outcome.conflicts[0].model_dump(mode="json")]
+            assert content["missing_information"] == outcome.missing_information
             assert content["sources"][0]["url"] == "https://example.org/"
             assert content["cost"]["tavily_credits"] == 1
 

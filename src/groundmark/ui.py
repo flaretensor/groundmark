@@ -112,6 +112,12 @@ def _render_result(result: ResearchResult) -> None:
     if result.conflicts:
         st.subheader("Conflicts detected")
         for conflict in result.conflicts:
+            label = (
+                "Verified disagreement"
+                if conflict.origin == "verification"
+                else "Reported by the model, not independently verified"
+            )
+            st.caption(label)
             st.markdown(f"**{_escape(conflict.topic)}** · {_escape(conflict.description)}")
             st.markdown(" · ".join(_link(ref, sources[ref].url) for ref in conflict.source_ids))
 

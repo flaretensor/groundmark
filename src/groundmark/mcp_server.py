@@ -5,7 +5,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from groundmark.models import ClaimStatus, PairVerdict, QuoteMatch
+from groundmark.models import ClaimStatus, ConflictResult, PairVerdict, QuoteMatch
 from groundmark.research import Options, ResearchFailure, ResearchRunner
 
 
@@ -37,7 +37,9 @@ class ToolCost(TypedDict):
 class ToolResult(TypedDict):
     summary: str
     insufficient_evidence: bool
+    missing_information: list[str]
     claims: list[ToolClaim]
+    conflicts: list[ConflictResult]
     sources: list[ToolSource]
     cost: ToolCost
 
@@ -60,6 +62,7 @@ def build_server(runner: ResearchRunner | None = None) -> FastMCP:
         return {
             "summary": result.summary,
             "insufficient_evidence": result.insufficient_evidence,
+            "missing_information": result.missing_information,
             "claims": [
                 {
                     "id": row.claim.claim_id,
@@ -78,6 +81,7 @@ def build_server(runner: ResearchRunner | None = None) -> FastMCP:
                 }
                 for row in result.claims
             ],
+            "conflicts": result.conflicts,
             "sources": [
                 {"id": source.source_id, "title": source.title, "url": source.url}
                 for source in result.sources

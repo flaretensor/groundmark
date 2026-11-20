@@ -55,6 +55,13 @@ class Conflict(StrictOutput):
     source_ids: list[str]
 
 
+class ConflictResult(BaseModel):
+    topic: str
+    description: str
+    source_ids: list[str]
+    origin: Literal["verification", "synthesis"] = "verification"
+
+
 class Synthesis(StrictOutput):
     summary: str
     claims: list[Claim]
@@ -151,7 +158,7 @@ class ResearchResult(BaseModel):
     insufficient_evidence: bool
     missing_information: list[str]
     claims: list[ClaimResult]
-    conflicts: list[Conflict]
+    conflicts: list[ConflictResult]
     sources: list[Source]
     trace: ResearchTrace
 
