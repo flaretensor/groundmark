@@ -25,17 +25,19 @@ The second claim gives the prize citation, quoted from the Nobel press release. 
 
 **When sources disagree:** *What is the latest stable release of Python?* Python.org's download page and home page name 3.15.2 as the latest release. Two other pages disagree: a python.org source-releases page, served as a no-script fallback, that listed 3.15.1, and an older article written while 3.15 was still a release candidate. Groundmark marked "the latest stable release is 3.15.2" as **Sources disagree** and kept it out of the answer. The answer kept only the two supported claims, the 3.15.2 and 3.15.0 release dates.
 
-**Failure case:** *Who won the 2030 Nobel Prize in Physics?* The agent searched once, recognized that the 2030 prize hasn't been awarded yet, and stopped: "This can't be known yet as of today's date." It skipped synthesis and made no claims.
+**Failure case:** *What revenue did Apple report for its fiscal 2027 first quarter?* Apple's fiscal first quarter runs from October to December, so on November 20, 2026 it hadn't been reported. The agent searched once, found older first-quarter results and a page expecting the next report in late January 2027, and stopped: "This can't be known yet as of today's date." It skipped synthesis and made no claims instead of reporting an earlier quarter's revenue.
 
 | Run | Outcome | Time | Tavily credits | Estimated Nebius cost |
 |---|---|---:|---:|---:|
 | 2026 Nobel Prize in Physics | 2 supported claims, 1 search round | 13.0 s | 2 | $0.009 |
 | Latest stable Python release | 2 supported claims, 1 conflicting claim, 1 round | 16.7 s | 2 | $0.011 |
+| Apple fiscal 2027 first-quarter revenue | Abstained after 1 round | 4.4 s | 2 | $0.0015 |
 | 2030 Nobel Prize in Physics | Abstained after 1 round | 3.1 s | 1 | $0.0008 |
+| 2027 Wimbledon men's singles title | Abstained after 1 round | 4.6 s | 2 | $0.0014 |
 | NVIDIA's most recent quarterly data center revenue | 1 supported claim, 1 round. NVIDIA's own release was read, but its snippet lacked the 21% sequential growth in the claim, so other sources carried it | 17.2 s | 2 | $0.012 |
 | Microsoft's most recent quarterly revenue | 2 supported claims, 1 round. The revenue figure was supported only by an aggregator's company profile | 16.5 s | 2 | $0.009 |
 
-These are all five live runs made on November 20, 2026 after the last change to the agent, recorded to show behavior. They aren't an accuracy benchmark.
+These are all seven live runs made on November 20, 2026 after the last change to the agent, recorded to show behavior. They aren't an accuracy benchmark.
 
 ## How it works
 
