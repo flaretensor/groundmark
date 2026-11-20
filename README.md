@@ -56,7 +56,7 @@ The agent is a LangGraph `StateGraph`. Planning, assessment, synthesis and verif
 1. **Plan.** Writes one or two search queries. The current date turns "latest" or "this year" into explicit years.
 2. **Search.** Tavily Search (basic, 5 results per query). Results are deduplicated by canonical URL or content hash and get stable IDs (`S1`, `S2`, …) that the model must cite exactly. The UI renumbers sources 1, 2, 3 in the order the answer cites them.
 3. **Assess.** Decides whether the sources answer the question for the right entity, place and period. It can run one focused follow-up search (at most two rounds), or stop when the answer can't exist yet.
-4. **Synthesize.** Writes up to six short, atomic claims from up to six sources. Each claim carries its scope and period, and disagreements and gaps are recorded explicitly.
+4. **Synthesize.** Writes up to six short, atomic claims from up to ten sources. Each claim carries its scope and period, and disagreements and gaps are recorded explicitly.
 5. **Verify.** Checks every claim against every source the answer was written from, in parallel. Each pair gets `supported`, `contradicted` or `not_supported`, plus a verbatim quote of at most 300 characters. If the quote can't be found in the source text, the verdict is downgraded to `not_supported`.
 6. **Extract fallback.** When a claim isn't supported by its search snippet, Tavily Extract fetches the cited page. Groundmark splits it into chunks, picks candidates with `Qwen/Qwen3-Embedding-8B` on Nebius, reranks them on CPU with a cross-encoder (in Docker), and checks again.
 7. **Finalize.** The answer is built only from supported claims. A claim with both support and contradiction is `conflicting`. `not_supported` means the retrieved text doesn't prove the claim, not that the claim is false.
@@ -127,7 +127,7 @@ API keys, hidden reasoning and full page text never go into the trace. In Docker
 
 - **The checker is a model.** The same model writes and checks the claims. A verdict is the model's judgment plus a literal quote match, not proof. In the Tokyo run the answer matched the official source it cited: the Tokyo Metropolitan Government figure of 14.273 million as of October 1, 2025, plus the urban-area estimate, each labeled with its scope. But the cross-check flagged a prefecture figure as contradicting a city-proper figure, and it accepted a low-quality page's claim of 37.8 million as a contradiction. Both mistakes ended up under **Conflicts**, not in the answer, and both are scope errors.
 - **Source quality isn't scored.** The prompts prefer official sources, but nothing in the code ranks sources by authority. Tavily's relevance score isn't a reliability score.
-- **Only sources read for the answer are checked.** That's up to six per run. Other retrieved results are listed but not verified.
+- **Only sources read for the answer are checked.** That's up to ten per run. Other retrieved results are listed but not verified.
 - **Snippets lose structure.** Tables and infoboxes arrive flattened, so a number can lose its label.
 - **No accuracy benchmark yet.** The runs above are examples, not measured accuracy.
 - **One run at a time.** The API serves one run at a time. There's no conversational follow-up and no resume after a crash, even though checkpoints are saved.

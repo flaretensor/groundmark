@@ -35,6 +35,8 @@ from groundmark.sources import (
 )
 from groundmark.verification import Verifier, aggregate, plain_claim_text, strip_markers
 
+SYNTHESIS_SOURCE_LIMIT = 10
+
 PLAN_SYSTEM = (
     "You plan web searches for a research agent. Write one or two concise search queries that "
     "would find the facts needed to answer the question. Use one query for a single specific "
@@ -139,9 +141,8 @@ def _synthesis_sources(sources: list[Source]) -> list[Source]:
         first_by_query.setdefault(source.query, source)
     prioritized = list(first_by_query.values())
     priority_ids = {source.source_id for source in prioritized}
-    return [*prioritized, *(source for source in ranked if source.source_id not in priority_ids)][
-        :6
-    ]
+    prioritized.extend(source for source in ranked if source.source_id not in priority_ids)
+    return prioritized[:SYNTHESIS_SOURCE_LIMIT]
 
 
 def plan(state: State, context: GraphContext) -> State:

@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from conftest import ScriptedLLM, ScriptedSearch, snippet
@@ -404,11 +405,18 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
 
     llm = SourceAwareLLM(
         Plan=[{"queries": ["first", "second"], "rationale": "Two aspects."}],
+        Assessment=[
+            {
+                "decision": "refine",
+                "followup_query": "third",
+                "stop_reason": "Check another source.",
+            }
+        ],
         Synthesis=[
             {
                 **synthesis(
                     {"claim_id": "C1", "text": text, "source_ids": ["S1"]},
-                    {"claim_id": "C2", "text": unrelated_claim, "source_ids": ["S8"]},
+                    {"claim_id": "C2", "text": unrelated_claim, "source_ids": ["S12"]},
                 ),
                 "conflicts": [
                     {"topic": text, "description": text, "source_ids": ["S1", "S2"]},
@@ -417,30 +425,34 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
                         "description": "The reports give different dates.",
                         "source_ids": ["S1", "S2"],
                     },
-                    {"topic": "Unknown", "description": "No usable source.", "source_ids": ["S7"]},
+                    {"topic": "Unknown", "description": "No usable source.", "source_ids": ["S5"]},
                 ],
             }
         ],
     )
 
-    def result(index):
+    def search_result(index, score):
         content = [text, answers["S2"][1]][index] if index < 2 else f"Source {index}."
         return snippet(
             url=f"https://example.org/{index}",
             content=content + " " + "text " * 300 + "omitted",
-        )
+        ) | {"score": score}
 
-    search = ScriptedSearch([result(i) for i in range(5)], [result(i) for i in range(5, 8)])
+    scores = [0.95, 0.94, 0.93, 0.92, 0.8, 0.91, 0.9, 0.85, 0.84, 0.83, 0.82, 0.7]
+    results = [search_result(index, score) for index, score in enumerate(scores)]
+    search = ScriptedSearch(results[:5], results[5:10], results[10:])
     question = "When did the plant open?"
-    result = ResearchRunner(settings, llm=llm, search=search).run(question, Options(max_rounds=1))
-    prompt = llm.requests[1].prompt
-    assert len(result.sources) == 8
-    assert result.trace.synthesis_source_ids == ["S1", "S6", "S2", "S3", "S4", "S5"]
-    assert prompt.count("</untrusted_source>") == 6 and "omitted" not in prompt
-    assert result.trace.stripped_source_ids == ["S8", "S7"]
+    result = ResearchRunner(settings, llm=llm, search=search).run(question, Options(max_rounds=2))
+    prompt = llm.requests[2].prompt
+    expected_sources = ["S1", "S6", "S11", "S2", "S3", "S4", "S7", "S8", "S9", "S10"]
+    assert len(result.sources) == 12
+    assert result.trace.synthesis_source_ids == expected_sources
+    assert re.findall(r'<untrusted_source id="(S\d+)"', prompt) == expected_sources
+    assert "omitted" not in prompt
+    assert result.trace.stripped_source_ids == ["S12", "S5"]
     date_line = llm.requests[0].prompt.splitlines()[0]
     verifier_requests = [request for request in llm.requests if request.schema is PairJudgments]
-    assert len(verifier_requests) == 6
+    assert len(verifier_requests) == 10
     for request in verifier_requests:
         assert request.prompt.startswith(f"{date_line}\nQuestion: {question}\nClaims:\n")
         assert json.loads(request.prompt.splitlines()[3]) == [
@@ -462,6 +474,18 @@ def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_id
         (text, "verification", ["S1", "S2"]),
         ("Opening date", "synthesis", ["S1", "S2"]),
     ]
+
+
+def test_synthesis_keeps_at_most_six_claims(settings):
+    claims = [
+        {"claim_id": f"C{index}", "text": f"Claim {index}.", "source_ids": []}
+        for index in range(1, 8)
+    ]
+    llm = ScriptedLLM(Plan=[plan()], Synthesis=[synthesis(*claims)], PairJudgments=[{"pairs": []}])
+    result = ResearchRunner(settings, llm=llm, search=ScriptedSearch([snippet()])).run(
+        "When?", Options(max_rounds=1)
+    )
+    assert [row.claim.text for row in result.claims] == [row["text"] for row in claims[:6]]
 
 
 def test_claim_text_cleanup_dated_prompt_and_partial_support(settings):
