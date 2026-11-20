@@ -19,6 +19,14 @@ def test_screen_renders_claims_and_trace(monkeypatch, outcome):
             origin="synthesis",
         )
     )
+    outcome.conflicts.append(
+        ConflictResult(
+            topic="Tokyo has 14 million residents.",
+            description="Tokyo has 14 million residents.",
+            source_ids=["S1"],
+            origin="verification",
+        )
+    )
 
     class Client:
         def stream(self, question):
@@ -45,11 +53,14 @@ def test_screen_renders_claims_and_trace(monkeypatch, outcome):
         row.value == "**Not found in retrieved sources:**\n\n- Costs of \\$5 and \\$6 \\| tax."
         for row in app.markdown
     )
-    assert any(row.value.endswith(" · used in answer") for row in app.markdown)
+    assert any(row.value.endswith(" · read for the answer") for row in app.markdown)
     assert any(row.value.endswith(" · retrieved, not read for the answer") for row in app.markdown)
     assert any(
-        row.value == "Reported by the model, not independently verified" for row in app.caption
+        row.value == "Noted by the model while writing the answer, not checked"
+        for row in app.caption
     )
+    assert any(row.value == "Tokyo has 14 million residents." for row in app.markdown)
+    assert any(row.value == "Found by checking claims against sources" for row in app.caption)
     assert [item.label for item in app.expander] == ["Sources", "Research trace"]
     assert "sufficient" in app.json[0].value
 
@@ -68,6 +79,13 @@ def test_unanswerable_message_accompanies_insufficient_evidence(outcome):
         "Insufficient evidence in the retrieved sources to fully answer this question.",
         "This can't be known yet as of today's date.",
     ]
+    assert [item.value for item in app.subheader] == ["Answer"]
+
+
+def test_escape_blocks_markdown_structure():
+    from groundmark.ui import _escape
+
+    assert _escape("Title\n===\n- item\n+ more!") == "Title\n\\=\\=\\=\n\\- item\n\\+ more\\!"
 
 
 def test_rejects_long_question_before_start():

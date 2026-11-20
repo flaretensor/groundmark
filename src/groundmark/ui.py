@@ -47,7 +47,7 @@ CITATION = re.compile(r"\[(S[0-9]+)\]")
 
 
 def _escape(value: str) -> str:
-    value = re.sub(r"([\\\[\]*_()~:#<>$|])", r"\\\1", value)
+    value = re.sub(r"([\\\[\]*_()~:#<>$|\-+=!{}])", r"\\\1", value)
     return value.replace(chr(96), "\\" + chr(96))
 
 
@@ -94,7 +94,8 @@ def _render_result(result: ResearchResult) -> None:
     if kinds - {"budget", "truncation"}:
         st.warning(FAILED)
 
-    st.subheader("Claim verification")
+    if result.claims:
+        st.subheader("Claim verification")
     for row in result.claims:
         with st.container(border=True):
             st.markdown(f"**{STATUS[row.status]}**")
@@ -116,12 +117,15 @@ def _render_result(result: ResearchResult) -> None:
         st.subheader("Conflicts detected")
         for conflict in result.conflicts:
             label = (
-                "Verified disagreement"
+                "Found by checking claims against sources"
                 if conflict.origin == "verification"
-                else "Reported by the model, not independently verified"
+                else "Noted by the model while writing the answer, not checked"
             )
             st.caption(label)
-            st.markdown(f"**{_escape(conflict.topic)}** · {_escape(conflict.description)}")
+            if conflict.description.startswith(conflict.topic):
+                st.markdown(_escape(conflict.description))
+            else:
+                st.markdown(f"**{_escape(conflict.topic)}** · {_escape(conflict.description)}")
             st.markdown(" · ".join(_link(ref, sources[ref].url) for ref in conflict.source_ids))
 
     with st.expander("Sources"):
@@ -129,7 +133,7 @@ def _render_result(result: ResearchResult) -> None:
         for source in result.sources:
             title = _link(f"[{source.source_id}] {source.title}", source.url)
             usage_note = (
-                " · used in answer"
+                " · read for the answer"
                 if source.source_id in synthesis_ids
                 else " · retrieved, not read for the answer"
             )
