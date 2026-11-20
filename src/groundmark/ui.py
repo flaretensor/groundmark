@@ -201,7 +201,7 @@ def _plain(text: str, numbers: dict[str, int]) -> str:
     return MENTION.sub(replace, text)
 
 
-def _date(value: str | None, with_time: bool = False) -> str:
+def _date(value: str | None) -> str:
     if not value:
         return ""
     try:
@@ -212,7 +212,7 @@ def _date(value: str | None, with_time: bool = False) -> str:
         except (TypeError, ValueError):
             return value
     text = f"{moment:%b} {moment.day}, {moment.year}"
-    if with_time and moment.tzinfo is not None:
+    if moment.tzinfo is not None:
         text += f", {moment.astimezone(UTC):%H:%M} UTC"
     return text
 
@@ -303,15 +303,12 @@ def _render_claim(
             st.caption(" · ".join(notes))
 
 
-def _render_source(index: int, number: int, source: Source, read: bool) -> None:
+def _render_source(index: int, number: int, source: Source, status: str) -> None:
     title = f":primary-background[**{number}**] {_escape(source.title)}"
     if domain := _domain(source.url):
         title += f" · {_escape(domain)}"
     with st.expander(title, key=f"source_{index}"):
-        details = ["Read for the answer" if read else "Retrieved, not read for the answer"]
-        if published := _date(source.published_date):
-            details.append(f"published {published}")
-        details.append(f"retrieved {_date(source.retrieved_at, with_time=True)}")
+        details = [status, f"retrieved {_date(source.retrieved_at)}"]
         if source.evidence_scope == "page":
             details.append("full page fetched")
         st.caption(" · ".join(_escape(item) for item in details))
@@ -337,9 +334,12 @@ def _render_result(result: ResearchResult) -> None:
     if result.claims:
         stats.append(f"{supported} of {_plural(len(result.claims), 'claim')} supported")
     stats.append(f"{trace.total_latency_ms / 1000:.1f} s")
+    if not supported:
+        _render_notices(result, numbers)
     with st.container(key="answer_stats"):
         st.caption(" · ".join(stats))
-    _render_notices(result, numbers)
+    if supported:
+        _render_notices(result, numbers)
 
     if result.claims:
         st.subheader(
@@ -379,7 +379,6 @@ def _render_result(result: ResearchResult) -> None:
 
     if result.sources:
         read_ids = set(trace.synthesis_source_ids)
-        read_count = sum(source.source_id in read_ids for source in result.sources)
         st.subheader(
             "Sources",
             anchor=False,
@@ -388,12 +387,20 @@ def _render_result(result: ResearchResult) -> None:
                 "against the sources read for the answer."
             ),
         )
-        st.caption(
-            f"{read_count} read for the answer · {len(result.sources) - read_count} retrieved only"
-        )
+        if trace.stop_reason == "unanswerable":
+            read_status = unread_status = "Reviewed while searching"
+            st.caption(f"{len(result.sources)} reviewed while searching")
+        else:
+            read_status = "Read for the answer"
+            unread_status = "Retrieved, not read for the answer"
+            read_count = sum(source.source_id in read_ids for source in result.sources)
+            st.caption(
+                f"{read_count} read for the answer · {len(result.sources) - read_count} retrieved only"
+            )
         ordered = sorted(result.sources, key=lambda source: numbers[source.source_id])
         for index, source in enumerate(ordered):
-            _render_source(index, numbers[source.source_id], source, source.source_id in read_ids)
+            status = read_status if source.source_id in read_ids else unread_status
+            _render_source(index, numbers[source.source_id], source, status)
 
 
 def _render_trace(result: ResearchResult | None) -> None:

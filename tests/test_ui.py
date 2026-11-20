@@ -95,20 +95,52 @@ def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
 
 
 def test_unanswerable_shows_one_message_and_reason(outcome):
+    message = "This can't be known yet as of today's date."
+    explanation = "The 2030 prize has not been awarded yet."
     outcome.summary = ""
     outcome.claims = []
     outcome.insufficient_evidence = True
-    outcome.missing_information = ["The 2030 prize has not been awarded yet."]
+    outcome.missing_information = [explanation]
+    outcome.sources.append(outcome.sources[0].model_copy(update={"source_id": "S2"}))
     outcome.trace.stop_reason = "unanswerable"
     outcome.trace.synthesis_source_ids = []
+    outcome.trace.total_latency_ms = 4200
     app = AppTest.from_file(UI)
     app.session_state["result"] = outcome
     app.run()
     assert not app.exception
-    assert [item.value for item in app.info] == ["This can't be known yet as of today's date."]
-    assert "The 2030 prize has not been awarded yet." in [row.value for row in app.caption]
+    assert [item.value for item in app.info] == [message]
+    notices = [item.value for item in app.tabs[0] if item.type in {"info", "caption"}]
+    assert [value for value in notices if value in [message, explanation, "4.2 s"]] == [
+        message,
+        explanation,
+        "4.2 s",
+    ]
+    captions = [item.value for item in app.caption]
+    assert "2 reviewed while searching" in captions
+    assert sum(item.startswith("Reviewed while searching · retrieved ") for item in captions) == 2
+    assert not any(item.startswith("Retrieved, not read for the answer") for item in captions)
     assert "Claims" not in [item.value for item in app.subheader]
     assert app.subheader[0].value == "Answer"
+
+
+def test_insufficient_evidence_precedes_zero_supported_claim_summary(outcome):
+    outcome.summary = ""
+    outcome.claims[0].status = "not_supported"
+    outcome.claims[0].pairs = []
+    outcome.insufficient_evidence = True
+    outcome.missing_information = ["The opening year."]
+    outcome.trace.total_latency_ms = 4200
+    app = AppTest.from_file(UI)
+    app.session_state["result"] = outcome
+    app.run()
+    assert not app.exception
+    items = [item.value for item in app.tabs[0] if item.type in {"info", "markdown", "caption"}]
+    assert (
+        items.index("The retrieved sources don't fully answer this question.")
+        < items.index("**Not settled by the sources:**\n\n- The opening year.")
+        < items.index("0 of 1 claim supported · 4.2 s")
+    )
 
 
 def test_escape_blocks_markdown_structure():
@@ -156,7 +188,7 @@ def test_favicon_ships_with_the_package():
     assert FAVICON.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_lowered_verdict_hides_quote_and_dates_are_readable(outcome):
+def test_lowered_verdict_hides_quote_and_only_retrieval_date_is_shown(outcome):
     pair = outcome.claims[0].pairs[0]
     outcome.claims[0].pairs[0] = pair.model_copy(
         update={
@@ -176,6 +208,6 @@ def test_lowered_verdict_hides_quote_and_dates_are_readable(outcome):
     captions = [row.value for row in app.caption]
     assert "Unverified quote: “made up ... quote”" in captions
     assert any("said this source supports the claim" in row for row in captions)
-    assert any(
-        "published Jun 25, 2026 · retrieved Nov 20, 2026, 20\\:48 UTC" in row for row in captions
-    )
+    assert "Read for the answer · retrieved Nov 20, 2026, 20\\:48 UTC" in captions
+    assert not any("published" in row for row in captions)
+    assert outcome.sources[0].published_date == "Thu, 25 Jun 2026 00:00:00 GMT"
