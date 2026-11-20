@@ -78,7 +78,7 @@ def _render_result(result: ResearchResult) -> None:
     st.subheader("Answer")
     if result.summary:
         st.markdown(_cited(result.summary, sources))
-    if result.insufficient_evidence:
+    if result.insufficient_evidence and result.sources:
         st.info(INSUFFICIENT)
         for item in result.missing_information:
             st.markdown(_escape(item))
