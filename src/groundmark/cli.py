@@ -1,9 +1,12 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 
+from groundmark.analytics import report
+from groundmark.config import Settings
 from groundmark.models import ResearchResult
 from groundmark.research import Options, ResearchFailure, ResearchRunner
 from groundmark.sources import private_json
@@ -79,7 +82,12 @@ def main(argv=None, runner=None) -> int:
     parser = argparse.ArgumentParser(description="Groundmark live-web research")
     subcommands = parser.add_subparsers(dest="command", required=True)
     _ask_arguments(subcommands.add_parser("ask"))
-    return _ask(parser.parse_args(argv), runner)
+    subcommands.add_parser("report")
+    arguments = parser.parse_args(argv)
+    if arguments.command == "report":
+        print(json.dumps(report(Settings().artifacts_dir / "runs"), indent=2))
+        return 0
+    return _ask(arguments, runner)
 
 
 if __name__ == "__main__":

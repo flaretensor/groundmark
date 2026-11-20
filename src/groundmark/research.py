@@ -7,6 +7,7 @@ import httpx
 from langsmith import tracing_context
 from pydantic import BaseModel, Field
 
+from groundmark.analytics import append_result
 from groundmark.budget import Amount, BudgetRefused, SpendLedger
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
@@ -125,6 +126,10 @@ class ResearchRunner:
             result = self._run_graph(question, context, live)
             if otlp_note:
                 result.trace.notes.append(otlp_note)
+            try:
+                append_result(settings.artifacts_dir / "runs", result)
+            except OSError:
+                result.trace.notes.append("Run analytics could not be written.")
             return result
         finally:
             telemetry.close()
