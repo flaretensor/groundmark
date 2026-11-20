@@ -106,7 +106,7 @@ def _render_result(result: ResearchResult) -> None:
                 st.markdown(f"{_link(pair.source_id, source.url)} · **{STATUS[pair.verdict]}**")
                 if pair.evidence_quote:
                     st.markdown(f"> {_escape(pair.evidence_quote)}")
-                citation_note = "" if pair.cited else " · not cited by the answer"
+                citation_note = "" if pair.cited else " · found by cross-checking"
                 st.caption(
                     f"{QUOTES[pair.quote_match]} · {SCOPE[pair.evidence_scope]}{citation_note}"
                 )
