@@ -8,7 +8,15 @@ from groundmark.checkpoints import build_checkpointer
 from groundmark.cli import main
 from groundmark.config import Credentials
 from groundmark.graph import ASSESS_SYSTEM, PLAN_SYSTEM, SYNTHESIS_SYSTEM, build_graph
-from groundmark.models import Claim, PairJudgment, PairJudgments, ResearchResult, Source, TokenUsage
+from groundmark.models import (
+    Claim,
+    ConflictResult,
+    PairJudgment,
+    PairJudgments,
+    ResearchResult,
+    Source,
+    TokenUsage,
+)
 from groundmark.providers import Completion, ProviderFailure
 from groundmark.research import Options, ResearchRunner
 from groundmark.verification import SYSTEM, aggregate, checked_pair, match_quote
@@ -369,6 +377,45 @@ def test_cli_json_and_trace(tmp_path, outcome, capsys):
     assert json.loads(path.read_text())["tavily_credits"] == 1
     assert main(["ask", "When?"], Runner()) == 0
     assert "https://example.org/" in capsys.readouterr().out
+
+
+def test_cli_text_explains_abstentions_gaps_and_conflicts(outcome, capsys):
+    trace = outcome.trace.model_copy(update={"stop_reason": "unanswerable"})
+    abstained = outcome.model_copy(
+        update={
+            "summary": "",
+            "claims": [],
+            "insufficient_evidence": True,
+            "missing_information": ["The result has not been announced yet."],
+            "trace": trace,
+        }
+    )
+    disputed = outcome.model_copy(
+        update={
+            "conflicts": [
+                ConflictResult(
+                    topic="Opening year",
+                    description="Sources give 2024 and 2025.",
+                    source_ids=["S1", "S2"],
+                )
+            ]
+        }
+    )
+
+    class Runner:
+        def __init__(self, result):
+            self.result = result
+
+        def run(self, question, options):
+            return self.result
+
+    assert main(["ask", "When?"], Runner(abstained)) == 0
+    text = capsys.readouterr().out
+    assert "This can't be known yet as of today's date." in text
+    assert "- The result has not been announced yet." in text
+    assert "don't fully answer" not in text
+    assert main(["ask", "When?"], Runner(disputed)) == 0
+    assert "Sources disagree: Sources give 2024 and 2025. [S1] [S2]" in capsys.readouterr().out
 
 
 def test_synthesis_bounds_context_preserves_query_coverage_and_rejects_unseen_ids(settings):

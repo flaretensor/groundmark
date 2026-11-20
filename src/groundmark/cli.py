@@ -30,8 +30,15 @@ def _ask_arguments(parser: argparse.ArgumentParser) -> None:
 def _write_text(result: ResearchResult) -> None:
     if result.summary:
         print(result.summary)
-    if result.insufficient_evidence:
+    if result.trace.stop_reason == "unanswerable":
+        print("This can't be known yet as of today's date.")
+    elif result.insufficient_evidence:
         print("The retrieved sources don't fully answer this question.")
+    for item in result.missing_information:
+        print(f"- {item}")
+    for conflict in result.conflicts:
+        references = " ".join(f"[{source_id}]" for source_id in conflict.source_ids)
+        print(f"Sources disagree: {conflict.description} {references}".rstrip())
     sources = {source.source_id: source.url for source in result.sources}
     for row in result.claims:
         print(f"{row.claim.claim_id} {row.status}  {row.claim.text}")
