@@ -4,7 +4,7 @@
 
 Built for the ODSC × Nebius hackathon challenge *Build a research agent that brings its sources*.
 
-- **Demo video (2–3 min):** _link added after upload_
+- **Demo video:** https://youtu.be/ekJM5Sufw5w
 - **Team:** Flare Tensor ([@flaretensor](https://github.com/flaretensor)), solo
 
 ## The problem
