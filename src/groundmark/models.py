@@ -49,6 +49,7 @@ class Source(BaseModel):
     round_index: int
     evidence_scope: EvidenceScope = "snippet"
     page_parts: list[str] = Field(default_factory=list)
+    page_retrieved_at: str | None = None
 
     def evidence_text(self, limit: int | None = None) -> str:
         return "\n\n".join((self.content[:limit], *self.page_parts))

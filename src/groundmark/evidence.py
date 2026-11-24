@@ -67,7 +67,9 @@ def _cap_page(text: str, source_id: str, notes: list[str]) -> str:
     return text[:PAGE_CHAR_LIMIT]
 
 
-def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> dict[str, str]:
+def _pages(
+    sources: list[Source], context: GraphContext, notes: list[str]
+) -> dict[str, tuple[str | None, str]]:
     pages = {}
     wanted = {}
     cache_dir = context.calls.settings.cache_dir / "extract"
@@ -76,11 +78,12 @@ def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> di
         path = cache_dir / f"{text_digest(url)}.json"
         if context.use_cache and path.is_file():
             try:
-                text = json.loads(path.read_text(encoding="utf-8"))["text"]
+                snapshot = json.loads(path.read_text(encoding="utf-8"))
+                text = snapshot["text"]
                 if isinstance(text, str):
                     text = _cap_page(text, source.source_id, notes)
                     if text.strip():
-                        pages[source.source_id] = text
+                        pages[source.source_id] = (snapshot.get("retrieved_at"), text)
                         notes.append(f"{source.source_id}: reused a private extraction snapshot")
                         continue
             except (ValueError, KeyError, TypeError):
@@ -92,6 +95,7 @@ def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> di
         response = context.calls.extract([source.url for source, _ in wanted.values()])
     except (ProviderFailure, BudgetRefused):
         return pages
+    retrieved_at = datetime.now(UTC).isoformat()
     for item in response.pages:
         canonical = canonical_url(str(item.get("url", "")))
         raw = item.get("raw_content") or item.get("content")
@@ -101,10 +105,10 @@ def _pages(sources: list[Source], context: GraphContext, notes: list[str]) -> di
         text = _cap_page(context.safe(raw), source.source_id, notes)
         if not text.strip():
             continue
-        pages[source.source_id] = text
+        pages[source.source_id] = (retrieved_at, text)
         private_json(
             path,
-            {"url": source.url, "retrieved_at": datetime.now(UTC).isoformat(), "text": text},
+            {"url": source.url, "retrieved_at": retrieved_at, "text": text},
         )
     for source, _ in wanted.values():
         if source.source_id not in pages:
@@ -171,9 +175,11 @@ def extract_evidence(
         page = pages.get(source.source_id)
         if page is None or context.calls.budget_stopped:
             continue
-        parts = _select_parts(context, source, page, state["question"], reranker, notes)
+        retrieved_at, content = page
+        parts = _select_parts(context, source, content, state["question"], reranker, notes)
         if parts:
             source.page_parts = parts
+            source.page_retrieved_at = retrieved_at
             source.evidence_scope = "page"
             received.append(source.source_id)
     return {

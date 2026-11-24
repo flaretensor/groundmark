@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from threading import Lock
 from time import sleep
 from typing import TypeVar
@@ -40,6 +41,7 @@ class Calls:
     embedder: Embedder | None = None
     progress: Callable[[Progress], None] | None = None
     errors: list[ResearchError] = field(default_factory=list)
+    tavily_receipts: list[dict] = field(default_factory=list)
     tokens: TokenUsage = field(default_factory=TokenUsage)
     spent: Amount = field(default_factory=Amount)
     credits_stopped: bool = False
@@ -198,8 +200,29 @@ class Calls:
             self.error(stage, error)
             raise error from None
 
+    def _tavily_receipt(self, operation: str, request: dict, response: dict) -> None:
+        def redact(value):
+            if isinstance(value, str):
+                return self.credentials.redact(value)
+            if isinstance(value, dict):
+                return {redact(key): redact(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            return value
+
+        self.tavily_receipts.append(
+            redact(
+                {
+                    "operation": operation,
+                    "retrieved_at": datetime.now(UTC).isoformat(),
+                    "request": request,
+                    "response": response,
+                }
+            )
+        )
+
     def search(self, query: str) -> SearchResponse:
-        return self._request(
+        response = self._request(
             "search",
             "search",
             "tavily",
@@ -212,6 +235,17 @@ class Calls:
             ),
         )
 
+        self._tavily_receipt(
+            "search",
+            {"query": query},
+            response.raw
+            or {
+                "results": response.results,
+                "credits": response.credits,
+            },
+        )
+        return response
+
     def extract(self, urls: list[str]) -> ExtractionResponse:
         def usage_of(response):
             credits = response.credits
@@ -219,7 +253,7 @@ class Calls:
                 credits = (len(response.pages) + 4) // 5
             return Amount(credits=credits), None, None
 
-        return self._request(
+        response = self._request(
             "extract",
             "extract",
             "tavily",
@@ -227,6 +261,18 @@ class Calls:
             lambda: self.search_client.extract(urls, self.settings.extract_timeout),
             usage_of,
         )
+
+        self._tavily_receipt(
+            "extract",
+            {"urls": urls},
+            response.raw
+            or {
+                "results": response.pages,
+                "failed_results": response.failures,
+                "credits": response.credits,
+            },
+        )
+        return response
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if self.embedder is None:

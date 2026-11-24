@@ -80,6 +80,7 @@ class Completion:
 class SearchResponse:
     results: list[dict]
     credits: int | None = None
+    raw: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,7 @@ class ExtractionResponse:
     pages: list[dict]
     failures: list[dict]
     credits: int | None = None
+    raw: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -210,7 +212,7 @@ class TavilySearchClient:
             raise ProviderFailure("tavily", "timeout") from None
         except requests.RequestException:
             raise ProviderFailure("tavily", "connection") from None
-        return SearchResponse(data["results"], self._credits(data))
+        return SearchResponse(data["results"], self._credits(data), raw=data)
 
     def extract(self, urls: list[str], timeout: float) -> ExtractionResponse:
         try:
@@ -221,7 +223,9 @@ class TavilySearchClient:
             raise ProviderFailure("tavily", "timeout") from None
         except requests.RequestException:
             raise ProviderFailure("tavily", "connection") from None
-        return ExtractionResponse(data["results"], data["failed_results"], self._credits(data))
+        return ExtractionResponse(
+            data["results"], data["failed_results"], self._credits(data), raw=data
+        )
 
     def close(self) -> None:
         self.session.close()

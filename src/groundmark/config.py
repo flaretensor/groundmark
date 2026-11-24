@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     reranker: Literal["cross-encoder", "none"] = "none"
     api_url: str = ""
     otlp_endpoint: str = Field("", validation_alias="OTEL_EXPORTER_OTLP_ENDPOINT")
+    git_commit_sha: str | None = None
     mlflow_tracking_uri: str = Field("", validation_alias="MLFLOW_TRACKING_URI")
 
     @model_validator(mode="after")

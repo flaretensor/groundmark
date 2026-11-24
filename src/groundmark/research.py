@@ -7,7 +7,7 @@ import httpx
 from langsmith import tracing_context
 from pydantic import BaseModel, Field
 
-from groundmark.analytics import append_result
+from groundmark.analytics import append_result, provenance
 from groundmark.budget import BudgetRefused, SpendLedger, usd_amount
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
@@ -66,6 +66,9 @@ class ResearchRunner:
         question: str,
         options: Options | None = None,
         progress: Callable[[Progress], None] | None = None,
+        *,
+        eval_question_id: str | None = None,
+        eval_arm: str | None = None,
     ) -> ResearchResult:
         if len(question) > 500 or not question.strip():
             raise ResearchFailure("invalid_question")
@@ -138,7 +141,8 @@ class ResearchRunner:
             if otlp_note:
                 result.trace.notes.append(otlp_note)
             try:
-                append_result(settings.artifacts_dir / "runs", result)
+                metadata = provenance(settings, calls.tavily_receipts, eval_question_id, eval_arm)
+                append_result(settings.artifacts_dir / "runs", result, metadata)
             except OSError:
                 result.trace.notes.append("Run analytics could not be written.")
             return result

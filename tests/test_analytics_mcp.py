@@ -70,3 +70,30 @@ def test_mcp_in_memory_tool_listing_and_invocation(outcome):
             assert content["cost"]["tavily_credits"] == 1
 
     anyio.run(call)
+
+
+def test_eval_grade_records_and_receipts_are_private(settings, outcome):
+    import hashlib
+    import json
+    import stat
+
+    import pyarrow.parquet as pq
+
+    path = settings.artifacts_dir / "runs" / outcome.trace.run_id
+    (run,) = pq.read_table(path / "run.parquet").to_pylist()
+    (claim,) = pq.read_table(path / "claims.parquet").to_pylist()
+    assert run["question"] == "When?"
+    assert run["question_id"] is None and run["arm"] is None
+    assert len(run["config_sha256"]) == 64
+    assert json.loads(run["models"])["agent"] == settings.model
+    assert (
+        run["sources"][0]["content_sha256"]
+        == hashlib.sha256(outcome.sources[0].content.encode()).hexdigest()
+    )
+    assert json.loads(run["action_trajectory"])[0]["query"] == "plant opening"
+    assert claim["claim_text"] == outcome.claims[0].claim.text
+    assert claim["pair_verdicts"][0]["evidence_quote"] == "opened in 2024"
+    receipts = json.loads((path / run["raw_tavily_artifact"]).read_bytes())
+    assert receipts[0]["operation"] == "search"
+    assert receipts[0]["response"]["results"][0]["url"] == outcome.sources[0].url
+    assert {stat.S_IMODE(file.stat().st_mode) for file in path.iterdir()} == {0o600}
