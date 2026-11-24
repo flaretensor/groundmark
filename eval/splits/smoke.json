@@ -1,0 +1,38 @@
+{
+  "datasets": {
+    "sealqa": {
+      "dataset": {
+        "filename": "seal-hard.parquet",
+        "repo": "vtllms/sealqa",
+        "revision": "0e75db526ad93dd039714897b7631afc03510e30",
+        "rows": 254,
+        "sha256": "b13fbacabac4b055dcabfae161df4dc661e31e915507324790779d107ab53e7e"
+      },
+      "ids": [
+        "58d57ca1573b563609739e069c5a7b9787c086576dd5ce9f2d6328fa2c4bc37e",
+        "10e8c14aefcc378a53e442b283a896bfaacdc9f718f516001e64ac076a59c5df",
+        "b01f894cc6d217f05099bad985a60bbd2014d8227d406d5a47a115872806f424",
+        "4f128462c995b9e1f289f55c15ec06509ce6f774010c5d019087940d5c7408a5",
+        "6291050c385fb3f230223179ff93fb1b1f10453abe8cb71f439b25524e1193a2"
+      ]
+    },
+    "simpleqa": {
+      "dataset": {
+        "filename": "simpleqa_verified.csv",
+        "repo": "google/simpleqa-verified",
+        "revision": "0dc97e0d28d8233463e005cdc4475cc2a13ba2dc",
+        "rows": 1000,
+        "sha256": "b5db21155444763543fe31b67e7cf28ce2bb225742a5b889421c5f182e2f92f5"
+      },
+      "ids": [
+        150,
+        1899,
+        1958,
+        704,
+        563
+      ]
+    }
+  },
+  "method": "first five IDs from each DEV split",
+  "seed": 20261124
+}

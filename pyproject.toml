@@ -51,6 +51,7 @@ eval = [
 [project.scripts]
 groundmark = "groundmark.cli:main"
 groundmark-mcp = "groundmark.mcp_server:main"
+groundmark-eval = "groundmark.eval.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.4", "pytest-socket>=0.7", "ruff>=0.14"]

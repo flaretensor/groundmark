@@ -1,0 +1,84 @@
+{
+  "files": [
+    {
+      "filename": "NQ.json",
+      "improper": 590,
+      "judges": {
+        "chatgpt": {
+          "correct": 2245,
+          "eligible": 3020,
+          "incorrect": 919,
+          "missing": 446
+        },
+        "fid": {
+          "correct": 2110,
+          "eligible": 3019,
+          "incorrect": 971,
+          "missing": 529
+        },
+        "gpt35": {
+          "correct": 2005,
+          "eligible": 3020,
+          "incorrect": 1076,
+          "missing": 529
+        },
+        "gpt4": {
+          "correct": 2385,
+          "eligible": 3020,
+          "incorrect": 643,
+          "missing": 582
+        },
+        "newbing": {
+          "correct": 2437,
+          "eligible": 3019,
+          "incorrect": 643,
+          "missing": 530
+        }
+      },
+      "repo": "wangcunxiang/QA-Eval",
+      "revision": "90007d39d4ef0720984f80d56a586c66d6241e70",
+      "rows": 3610,
+      "sha256": "617c7fd95fe4177f39e2304c943cc0abbdbf539bc8a4fb61aeaef255bed503a1"
+    },
+    {
+      "filename": "TQ.json",
+      "improper": 62,
+      "judges": {
+        "chatgpt": {
+          "correct": 1656,
+          "eligible": 1938,
+          "incorrect": 329,
+          "missing": 15
+        },
+        "fid": {
+          "correct": 1603,
+          "eligible": 1938,
+          "incorrect": 382,
+          "missing": 15
+        },
+        "gpt35": {
+          "correct": 1539,
+          "eligible": 1938,
+          "incorrect": 446,
+          "missing": 15
+        },
+        "gpt4": {
+          "correct": 1770,
+          "eligible": 1938,
+          "incorrect": 215,
+          "missing": 15
+        },
+        "newbing": {
+          "correct": 1763,
+          "eligible": 1938,
+          "incorrect": 222,
+          "missing": 15
+        }
+      },
+      "repo": "wangcunxiang/QA-Eval",
+      "revision": "90007d39d4ef0720984f80d56a586c66d6241e70",
+      "rows": 2000,
+      "sha256": "e01709ec6b979d3976f2f8f676dab2e2aea50e0a07f3c66d70dae358e5360d23"
+    }
+  ]
+}
