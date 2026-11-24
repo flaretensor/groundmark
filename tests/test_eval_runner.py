@@ -1,11 +1,17 @@
 import json
+from contextlib import contextmanager
 
 import pytest
 from conftest import ScriptedLLM, ScriptedSearch, decision, snippet
 
+from groundmark import config
 from groundmark.budget import Amount, BudgetRefused, SpendLedger, usd_amount
 from groundmark.config import Credentials
+from groundmark.eval import judge as judge_module
+from groundmark.eval import report as report_module
+from groundmark.eval import runner as runner_module
 from groundmark.eval.cli import main
+from groundmark.eval.graders import dataset_graders
 from groundmark.eval.judge import AnswerJudge, judge_stage
 from groundmark.eval.report import report
 from groundmark.eval.runner import (
@@ -216,3 +222,47 @@ def test_first_search_arms_never_read_extracted_or_later_evidence(settings, tmp_
     assert "SealQA says Year 2024" in full and "SealQA says Year 2024" not in first
     assert ("A later source." in full) == later_search
     assert "A later source." not in first
+
+
+def test_live_smoke_command_grades_each_dataset_and_passes_template_hashes_to_mlflow(
+    settings, tmp_path, monkeypatch
+):
+    questions = [Question(dataset, "1", "What year?", "2024") for dataset in ("simpleqa", "sealqa")]
+    smoke_settings = settings.model_copy(update={"mlflow_tracking_uri": "http://127.0.0.1:51433"})
+    model = ScriptedLLM(Grade=[{"grade": "A"}, {"grade": "B"}])
+    recorded = []
+
+    @contextmanager
+    def fake_judge(settings, ledger):
+        yield AnswerJudge(settings, Credentials("", ""), ledger, model)
+
+    def fake_runner(settings, ledger):
+        llm = ScriptedLLM(
+            Action=[decision(query="year"), decision("finish")] * 2,
+            Synthesis=[_synthesis("only") | {"claims": []}] * 2,
+        )
+        return ResearchRunner(
+            settings, llm=llm, search=ScriptedSearch([snippet()], [snippet()]), ledger=ledger
+        )
+
+    monkeypatch.setattr(config, "Settings", lambda: smoke_settings)
+    monkeypatch.setattr(runner_module, "ROOT", tmp_path)
+    monkeypatch.setattr(runner_module, "stage_questions", lambda stage: questions)
+    monkeypatch.setattr(runner_module, "live_runner", fake_runner)
+    monkeypatch.setattr(judge_module, "live_judge", fake_judge)
+    monkeypatch.setattr(
+        report_module, "log_mlflow", lambda summary, root, uri: recorded.append(summary)
+    )
+
+    main(["run", "--stage", "smoke", "--live"])
+
+    expected = {}
+    rows = [json.loads(path.read_bytes()) for path in (tmp_path / "smoke").glob("*.json")]
+    for row in rows:
+        (grader,) = dataset_graders(row["dataset"])
+        expected[grader.name] = grader.sha256
+        assert row["arms"]["A"]["grader_template"] == grader.name
+        assert row["arms"]["A"]["grader_sha256"] == grader.sha256
+        assert row["judge_usage"][0]["tokens"]["input"] == 40
+    assert len(rows) == len(model.requests) == 2
+    assert recorded[0]["grader_templates"] == expected

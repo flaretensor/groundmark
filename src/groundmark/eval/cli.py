@@ -1,6 +1,7 @@
 import argparse
 import json
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 
 from groundmark.eval.datasets import DATASETS
@@ -20,10 +21,11 @@ def main(argv: list[str] | None = None) -> None:
     analysis = commands.add_parser("checker-analyze")
     analysis.add_argument("receipts", nargs="+", type=Path)
     analysis.add_argument("--output", required=True, type=Path)
-    fusion = commands.add_parser("fusion-analyze")
-    fusion.add_argument("--local-receipts", nargs="+", required=True, type=Path)
-    fusion.add_argument("--hosted-receipt", required=True, type=Path)
-    fusion.add_argument("--mlflow-uri", default="")
+    for name in ("fusion-analyze", "cascade-analyze"):
+        stored = commands.add_parser(name)
+        stored.add_argument("--local-receipts", nargs="+", required=True, type=Path)
+        stored.add_argument("--hosted-receipt", required=True, type=Path)
+        stored.add_argument("--mlflow-uri", default="")
     hosted = commands.add_parser("checker-hosted")
     hosted.add_argument("--live", action="store_true", required=True)
     hosted.add_argument("--local-receipts", nargs="+", required=True, type=Path)
@@ -72,6 +74,13 @@ def main(argv: list[str] | None = None) -> None:
             print(run_fusion(args.local_receipts, args.hosted_receipt, args.mlflow_uri))
         except (ValueError, OSError) as error:
             parser.exit(1, f"{error}\n")
+    elif args.command == "cascade-analyze":
+        from groundmark.eval.cascade import run_cascade
+
+        try:
+            print(run_cascade(args.local_receipts, args.hosted_receipt, args.mlflow_uri))
+        except (ValueError, OSError, RuntimeError) as error:
+            parser.exit(1, f"{error}\n")
     elif args.command == "checker-hosted":
         from groundmark.eval.hosted_checker import run_hosted
 
@@ -98,21 +107,47 @@ def _evaluate(args) -> None:
     if args.command == "run":
         questions = stage_questions(args.stage)
         ledger = stage_ledger(ROOT, args.stage)
+        settings = Settings()
+        if args.stage == "smoke":
+            from groundmark.pricing import JUDGE_MODEL, MODEL
+
+            if (
+                settings.model != MODEL
+                or settings.resolved_checker_model != MODEL
+                or settings.checker != "nebius"
+                or not settings.require_quote
+                or settings.judge_model != JUDGE_MODEL
+            ):
+                raise ValueError(
+                    "Smoke requires the default hosted models and a quote-gated checker"
+                )
         try:
-            runner = live_runner(Settings(), ledger)
+            runner = live_runner(settings, ledger)
         except ResearchFailure as error:
             raise ValueError(str(error)) from None
+        if args.stage == "smoke":
+            from groundmark.eval.judge import judge_record, live_judge
+            from groundmark.eval.report import report
+
+            with live_judge(settings, ledger) as judge:
+                completed = run_stage(
+                    args.stage,
+                    questions,
+                    runner,
+                    ledger,
+                    root=ROOT,
+                    grade=partial(judge_record, judge=judge, record_usage=True),
+                )
+            report(args.stage, root=ROOT, mlflow_uri=settings.mlflow_tracking_uri)
+        else:
+            completed = run_stage(
+                args.stage, questions, runner, ledger, root=ROOT, confirm_test=args.confirm_test
+            )
         print(
             json.dumps(
                 {
                     "stage": args.stage,
-                    "completed": run_stage(
-                        args.stage,
-                        questions,
-                        runner,
-                        ledger,
-                        confirm_test=args.confirm_test,
-                    ),
+                    "completed": completed,
                     "eligible": len(questions),
                     "budget_blocked": ledger.scope_blocked,
                 }

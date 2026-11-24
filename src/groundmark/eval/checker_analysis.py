@@ -47,16 +47,21 @@ class ClaimGroups:
             "fsr": ratio(self.sum(support & negatives), self.sum(negatives), zero=np.nan),
         }
 
-    def out_of_fold(self, scores: np.ndarray, targets: tuple, *, fit=fit_cutoff) -> dict:
+    def out_of_fold(
+        self, scores: np.ndarray, targets: tuple, *, fit=fit_cutoff, positive=None, valid=None
+    ) -> dict:
         split = GroupKFold(n_splits=FOLDS, shuffle=True, random_state=42)
-        gold_support = self.gold == 0
+        if positive is None:
+            positive = self.gold == 0
         result = {
             target: {"supports": np.zeros(len(scores), dtype=bool), "thresholds": []}
             for target in targets
         }
         for train, held in split.split(scores, groups=self.groups):
+            if valid is not None:
+                train = train[valid[train]]
             for target, output in result.items():
-                cutoff = fit(scores[train], gold_support[train], target)
+                cutoff = fit(scores[train], positive[train], target)
                 output["supports"][held] = scores[held] >= cutoff
                 output["thresholds"].append(cutoff if np.isfinite(cutoff) else None)
         return result

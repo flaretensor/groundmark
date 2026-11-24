@@ -44,6 +44,7 @@ class AnswerJudge:
         answer: str,
         *,
         grader: Grader = ORIGINAL,
+        usage_records: list[dict] | None = None,
     ) -> str:
         def escape(text: str) -> str:
             return self.credentials.redact(text).replace("```", "\\u0060" * 3)
@@ -52,6 +53,7 @@ class AnswerJudge:
             question=escape(question), target=escape(gold), predicted_answer=escape(answer)
         )
         telemetry = RunTelemetry("")
+        calls = None
         try:
             calls = Calls(
                 settings=self.settings,
@@ -69,6 +71,14 @@ class AnswerJudge:
             )
             return LETTERS[response.grade]
         finally:
+            if usage_records is not None and calls is not None:
+                usage_records.append(
+                    {
+                        "tokens": calls.tokens.model_dump(),
+                        "estimated_usd": calls.spent.nanos / 1e9,
+                        "errors": [error.model_dump(exclude_none=True) for error in calls.errors],
+                    }
+                )
             telemetry.close()
 
 
@@ -85,6 +95,42 @@ def live_judge(settings: Settings, ledger: SpendLedger):
         client.close()
 
 
+def judge_record(
+    path: Path, row: dict, judge: AnswerJudge, *, record_usage=False
+) -> tuple[int, bool]:
+    (grader,) = dataset_graders(row["dataset"])
+    graded = [arm for arm in row["arms"].values() if arm["grade"] in LETTERS.values()]
+    if graded and row.get("judge_model") != judge.settings.judge_model:
+        raise ValueError("Existing evaluation grades use a different judge model")
+    known = {
+        arm["answer"]: arm["grade"] for arm in graded if arm.get("grader_sha256") == grader.sha256
+    }
+    usage = row.setdefault("judge_usage", []) if record_usage else None
+    completed = 0
+    for arm in row["arms"].values():
+        if arm["abstain"] or arm["grade"] is not None:
+            continue
+        try:
+            if arm["answer"] not in known:
+                known[arm["answer"]] = judge.estimate(
+                    row["question"], row["gold"], arm["answer"], grader=grader, usage_records=usage
+                )
+        except BudgetRefused:
+            return completed, True
+        except ProviderFailure as error:
+            row["judge_error"] = error.kind
+            private_json(path, row)
+            return completed, True
+        arm["grade"] = known[arm["answer"]]
+        row["judge_model"] = judge.settings.judge_model
+        arm["grader_template"] = grader.name
+        arm["grader_sha256"] = grader.sha256
+        row.pop("judge_error", None)
+        private_json(path, row)
+        completed += 1
+    return completed, False
+
+
 def judge_stage(directory: Path, judge: AnswerJudge) -> int:
     completed = 0
     with stage_lock(directory):
@@ -93,40 +139,10 @@ def judge_stage(directory: Path, judge: AnswerJudge) -> int:
             raise ValueError("No evaluation results to judge")
         for path in paths:
             row = json.loads(path.read_bytes())
-            (grader,) = dataset_graders(row["dataset"])
-            known = {
-                arm["answer"]: arm["grade"]
-                for arm in row["arms"].values()
-                if arm["grade"] in LETTERS.values()
-            }
-            if known and row.get("judge_model") != judge.settings.judge_model:
-                raise ValueError("Existing evaluation grades use a different judge model")
-            known = {
-                arm["answer"]: arm["grade"]
-                for arm in row["arms"].values()
-                if arm.get("grader_sha256") == grader.sha256 and arm["grade"] in LETTERS.values()
-            }
-            for arm in row["arms"].values():
-                if arm["abstain"] or arm["grade"] is not None:
-                    continue
-                try:
-                    if arm["answer"] not in known:
-                        known[arm["answer"]] = judge.estimate(
-                            row["question"], row["gold"], arm["answer"], grader=grader
-                        )
-                except BudgetRefused:
-                    return completed
-                except ProviderFailure as error:
-                    row["judge_error"] = error.kind
-                    private_json(path, row)
-                    return completed
-                arm["grade"] = known[arm["answer"]]
-                row["judge_model"] = judge.settings.judge_model
-                arm["grader_template"] = grader.name
-                arm["grader_sha256"] = grader.sha256
-                row.pop("judge_error", None)
-                private_json(path, row)
-                completed += 1
+            count, stopped = judge_record(path, row, judge)
+            completed += count
+            if stopped:
+                break
     return completed
 
 

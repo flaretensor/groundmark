@@ -67,7 +67,7 @@ def summary(values, aggregate_groups, predictions, complete) -> dict:
     return result
 
 
-def analyze_subset(hosted, local, resamples=RESAMPLES) -> dict:
+def align_subset(hosted, local):
     reference = next(iter(local.values()))
     observed = {row["row_id"]: row for row in hosted}
     ids = [row["row_id"] for row in reference]
@@ -76,6 +76,11 @@ def analyze_subset(hosted, local, resamples=RESAMPLES) -> dict:
     sizes = Counter(row["group"] for row in reference)
     valid_sizes = Counter(row["group"] for row in rows)
     complete = np.array([sizes[row["group"]] == valid_sizes[row["group"]] for row in rows])
+    return reference, rows, valid, complete
+
+
+def analyze_subset(hosted, local, resamples=RESAMPLES) -> dict:
+    reference, rows, valid, complete = align_subset(hosted, local)
     eligible = ClaimGroups(reference, resamples=0)
     groups = ClaimGroups(rows, resamples=resamples)
     claim_groups = ClaimGroups(
@@ -169,7 +174,7 @@ def cost_summary(directory: Path, receipt: dict) -> dict:
     }
 
 
-def run_fusion(local_receipts: list[Path], hosted_receipt: Path, mlflow_uri: str) -> Path:
+def read_fusion_inputs(local_receipts: list[Path], hosted_receipt: Path) -> tuple:
     receipts, local = read_local_receipts(local_receipts)
     hosted_meta = json.loads((hosted_receipt / "metrics.json").read_bytes())
     if set(local) != set(MODELS) or any(
@@ -189,6 +194,11 @@ def run_fusion(local_receipts: list[Path], hosted_receipt: Path, mlflow_uri: str
         ref = local_index.get(row["row_id"], {})
         if any(row[key] != ref.get(key) for key in ("group", "native_gold", "is_gold")):
             raise ValueError("Hosted and local DEV labels do not align")
+    return receipts, local, hosted_meta, hosted
+
+
+def run_fusion(local_receipts: list[Path], hosted_receipt: Path, mlflow_uri: str) -> Path:
+    _, local, hosted_meta, hosted = read_fusion_inputs(local_receipts, hosted_receipt)
     result = {
         "exploratory": True,
         "local_commit": LOCAL_COMMIT,
