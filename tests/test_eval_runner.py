@@ -17,7 +17,7 @@ from groundmark.eval.runner import (
     stage_ledger,
 )
 from groundmark.models import PairJudgments, TokenUsage
-from groundmark.providers import Completion
+from groundmark.providers import Completion, EmbeddingResponse, ExtractionResponse
 from groundmark.research import ResearchRunner
 
 
@@ -159,9 +159,60 @@ def test_one_search_reuses_synthesis_and_flags_without_dropping(settings, tmp_pa
     runner = ResearchRunner(settings, llm=llm, search=ScriptedSearch([source]), ledger=ledger)
     run_stage("smoke", [Question("simpleqa", "1", "When?", "2024")], runner, ledger, root=root)
     row = _read_one(root / "smoke")
-    assert row["arms"]["A"] == row["arms"]["C"]
-    assert row["arms"]["B"] == row["arms"]["D"]
+    assert row["arms"]["A"] == row["arms"]["C"] | {"evidence_scope": "first_search"}
+    assert row["arms"]["B"] == row["arms"]["D"] | {"evidence_scope": "first_search"}
     assert row["arms"]["A"]["answer"] == "only answer"
     assert row["arms"]["A"]["flagged_sources"][0]["flags"] == ["SimpleQA"]
     assert [r.schema.__name__ for r in llm.requests] == ["Action", "Action", "Synthesis"]
     assert source_flags("What year? no gold", "What year?", "2024") == set()
+
+
+@pytest.mark.parametrize("later_search", [False, True])
+def test_first_search_arms_never_read_extracted_or_later_evidence(settings, tmp_path, later_search):
+    actions = [decision(query="year"), decision("extract", source_ids=["S1"])]
+    responses = [snippet(title="First title", content="The opening is planned.")]
+    if later_search:
+        actions.append(decision(query="more"))
+        responses.append(snippet(url="https://later.example/", content="A later source."))
+    actions.append(decision("finish"))
+    synthesis = {"claim_id": "C1", "text": "Year 2024", "source_ids": ["S1"]}
+    llm = SourceAwareLLM(
+        Action=actions,
+        Synthesis=[_synthesis(group) | {"claims": [synthesis]} for group in ("full", "first")],
+    )
+    search = ScriptedSearch(
+        *[[response] for response in responses],
+        extraction=ExtractionResponse(
+            [{"url": "https://example.org/", "raw_content": "SealQA says Year 2024"}], [], 1
+        ),
+    )
+
+    class Embedder:
+        def embed(self, texts, timeout):
+            return EmbeddingResponse([[1.0, 0.0] for _ in texts], TokenUsage())
+
+    ledger = stage_ledger(tmp_path, "smoke")
+    runner = ResearchRunner(settings, llm=llm, search=search, ledger=ledger, embedder=Embedder())
+    run_stage("smoke", [Question("simpleqa", "1", "When?", "2024")], runner, ledger, root=tmp_path)
+    arms = _read_one(tmp_path / "smoke")["arms"]
+    assert [arms[name]["evidence_scope"] for name in ARMS] == [
+        "first_search",
+        "first_search",
+        "full_trajectory",
+        "full_trajectory",
+    ]
+    assert [arms[name]["answer"] for name in ARMS] == [
+        "first answer",
+        "",
+        "full answer",
+        "Year 2024 [S1]",
+    ]
+    assert [bool(arms[name]["flagged_sources"]) for name in ARMS] == [False, False, True, True]
+    full, first = [
+        request.prompt for request in llm.requests if request.schema.__name__ == "Synthesis"
+    ]
+    assert "The opening is planned." in first and "First title" in first
+    assert "https://example.org/" in first
+    assert "SealQA says Year 2024" in full and "SealQA says Year 2024" not in first
+    assert ("A later source." in full) == later_search
+    assert "A later source." not in first
