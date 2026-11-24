@@ -46,6 +46,8 @@ eval = [
     "scikit-learn>=1.6",
     "numpy>=2",
     "mlflow-skinny>=3.5",
+    "minicheck==0.1.0",
+    "nltk>=3.9",
 ]
 
 [project.scripts]
@@ -78,6 +80,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+minicheck = { git = "https://github.com/Liyan06/MiniCheck", rev = "b58b9fa69acbd1015ec970fa65dd752413a053d2" }
 torch = [
     { index = "pytorch-cpu", extra = "rerank", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { index = "pytorch-cu128", extra = "eval", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
