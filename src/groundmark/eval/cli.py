@@ -19,6 +19,10 @@ def main(argv: list[str] | None = None) -> None:
     analysis = commands.add_parser("checker-analyze")
     analysis.add_argument("receipts", nargs="+", type=Path)
     analysis.add_argument("--output", required=True, type=Path)
+    fusion = commands.add_parser("fusion-analyze")
+    fusion.add_argument("--local-receipts", nargs="+", required=True, type=Path)
+    fusion.add_argument("--hosted-receipt", required=True, type=Path)
+    fusion.add_argument("--mlflow-uri", default="")
     hosted = commands.add_parser("checker-hosted")
     hosted.add_argument("--live", action="store_true", required=True)
     hosted.add_argument("--local-receipts", nargs="+", required=True, type=Path)
@@ -57,6 +61,13 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             analyze(args.receipts, args.output)
+        except (ValueError, OSError) as error:
+            parser.exit(1, f"{error}\n")
+    elif args.command == "fusion-analyze":
+        from groundmark.eval.fusion import run_fusion
+
+        try:
+            print(run_fusion(args.local_receipts, args.hosted_receipt, args.mlflow_uri))
         except (ValueError, OSError) as error:
             parser.exit(1, f"{error}\n")
     elif args.command == "checker-hosted":

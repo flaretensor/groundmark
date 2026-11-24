@@ -47,7 +47,7 @@ class ClaimGroups:
             "fsr": ratio(self.sum(support & negatives), self.sum(negatives), zero=np.nan),
         }
 
-    def out_of_fold(self, scores: np.ndarray, targets: tuple) -> dict:
+    def out_of_fold(self, scores: np.ndarray, targets: tuple, *, fit=fit_cutoff) -> dict:
         split = GroupKFold(n_splits=FOLDS, shuffle=True, random_state=42)
         gold_support = self.gold == 0
         result = {
@@ -56,26 +56,35 @@ class ClaimGroups:
         }
         for train, held in split.split(scores, groups=self.groups):
             for target, output in result.items():
-                cutoff = fit_cutoff(scores[train], gold_support[train], target)
+                cutoff = fit(scores[train], gold_support[train], target)
                 output["supports"][held] = scores[held] >= cutoff
                 output["thresholds"].append(cutoff if np.isfinite(cutoff) else None)
         return result
 
-    def aggregate(self, predictions: np.ndarray, ternary: bool) -> dict:
-        def claim_labels(labels):
-            support = np.bincount(self.group_index[labels == 0], minlength=len(self.sizes)) > 0
-            refutes = np.bincount(self.group_index[labels == 1], minlength=len(self.sizes)) > 0
-            return support + 2 * refutes
+    def claim_labels(self, labels: np.ndarray) -> np.ndarray:
+        support = np.bincount(self.group_index[labels == 0], minlength=len(self.sizes)) > 0
+        refutes = np.bincount(self.group_index[labels == 1], minlength=len(self.sizes)) > 0
+        return support + 2 * refutes
 
-        gold = claim_labels(self.gold)
-        predicted = claim_labels(predictions)
-        gold_supported, pred_supported = gold == 1, predicted == 1
-        tp = self.weights @ (gold_supported & pred_supported)
-        fp = self.weights @ (~gold_supported & pred_supported)
+    def supported_rates(self, predictions: np.ndarray) -> dict[str, np.ndarray]:
+        gold = self.claim_labels(self.gold) == 1
+        predicted = self.claim_labels(predictions) == 1
+        return {
+            "false_supported_rate": ratio(
+                self.weights @ (~gold & predicted), self.weights @ ~gold, zero=np.nan
+            ),
+            "supported_recall": ratio(
+                self.weights @ (gold & predicted), self.weights @ gold, zero=np.nan
+            ),
+        }
+
+    def aggregate(self, predictions: np.ndarray, ternary: bool) -> dict:
+        gold = self.claim_labels(self.gold)
+        predicted = self.claim_labels(predictions)
         if ternary:
             labels = CLAIM_STANCE_ORDER
         else:
-            gold, predicted = gold_supported.astype(int), pred_supported.astype(int)
+            gold, predicted = (gold == 1).astype(int), (predicted == 1).astype(int)
             labels = ("not_supported", "supported")
         counts = np.bincount(len(labels) * gold + predicted, minlength=len(labels) ** 2)
         sizes, groups = np.unique(self.sizes, return_counts=True)
@@ -87,10 +96,9 @@ class ClaimGroups:
             ),
             "label_order": labels,
             "confusion_gold_rows": counts.reshape(len(labels), len(labels)).tolist(),
-            "false_supported_rate": interval(
-                ratio(fp, self.weights @ ~gold_supported, zero=np.nan)
-            ),
-            "supported_recall": interval(ratio(tp, self.weights @ gold_supported, zero=np.nan)),
+            **{
+                name: interval(values) for name, values in self.supported_rates(predictions).items()
+            },
         }
 
 
