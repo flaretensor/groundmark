@@ -21,6 +21,15 @@ def snippet(
     return {"url": url, "title": title, "content": content, "score": 0.8}
 
 
+def decision(action="search", query="", source_ids=(), rationale=""):
+    return {
+        "action": action,
+        "query": query,
+        "source_ids": list(source_ids),
+        "rationale": rationale,
+    }
+
+
 class ScriptedLLM:
     def __init__(self, **responses):
         self.responses = {key: list(value) for key, value in responses.items()}
@@ -68,8 +77,7 @@ def settings(tmp_path):
 @pytest.fixture
 def outcome(settings):
     llm = ScriptedLLM(
-        Plan=[{"queries": ["plant opening"], "rationale": "Find a source."}],
-        Assessment=[{"decision": "sufficient", "followup_query": "", "stop_reason": "Covered."}],
+        Action=[decision(query="plant opening"), decision("finish")],
         Synthesis=[
             {
                 "summary": "The plant opened in 2024 [S1].",

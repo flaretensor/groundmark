@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from dotenv import dotenv_values
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from groundmark.nli import NLI_MODELS
@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     judge_model: str = JUDGE_MODEL
     checker: Literal["nebius", "local-nli"] = "nebius"
     checker_model: str | None = None
-    max_rounds: Annotated[int, Field(ge=1, le=2)] = 2
+    max_steps: Annotated[int, Field(ge=1)] = 6
+    max_searches: Annotated[int, Field(ge=1)] = Field(
+        3, validation_alias=AliasChoices("GROUNDMARK_MAX_SEARCHES", "GROUNDMARK_MAX_ROUNDS")
+    )
+    max_extract_calls: Annotated[int, Field(ge=0)] = 1
     max_tavily_credits: Annotated[int, Field(ge=0)] = 6
     max_usd: Annotated[float, Field(ge=0)] = 0.15
     max_total_tavily_credits: Annotated[int, Field(ge=0)] = 1000

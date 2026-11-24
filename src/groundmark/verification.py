@@ -93,6 +93,10 @@ def checked_pair(
         match = match_quote(quote, evidence) if len(quote) <= 300 else "missing"
         if supplied_text is not None and match_quote(quote, supplied_text) == "missing":
             match = "missing"
+        if source.page_parts and all(
+            match_quote(quote, item) == "missing" for item in [source.content, *source.page_parts]
+        ):
+            match = "missing"
         if match == "missing" and require_quote:
             verdict = "not_enough_info"
 
@@ -143,7 +147,9 @@ class NebiusVerifier:
                     self.verify_source,
                     claims,
                     source,
-                    source.content,
+                    source.evidence_text(),
+                    scope=source.evidence_scope,
+                    preview=source.page_parts[0] if source.page_parts else "",
                     question=question,
                     today=today,
                 )
@@ -179,7 +185,7 @@ class NebiusVerifier:
         )
         try:
             answer = self.calls.structured(
-                "extract" if scope == "page" else "verify",
+                "verify",
                 PairJudgments,
                 SYSTEM,
                 prompt,

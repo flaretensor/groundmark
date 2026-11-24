@@ -84,10 +84,7 @@ def test_screen_renders_claims_sources_and_trace(monkeypatch, outcome):
     assert not any("S1" in row.value or "S2" in row.value for row in app.markdown)
     assert any(row.value == "> opened in 2024" for row in app.markdown)
     assert not app.json
-    assert any(
-        row.value == "1 search round · stopped because the sources covered the question"
-        for row in app.markdown
-    )
+    assert any(row.value == "1 search round · stopped because it finished" for row in app.markdown)
     assert any(
         row.value.startswith("**Round 1** ·") and row.value.endswith("· 1 new source")
         for row in app.markdown

@@ -9,10 +9,9 @@ from typing import Protocol
 
 from groundmark.budget import BudgetRefused
 from groundmark.graph import GraphContext, State
-from groundmark.models import Claim, ClaimResult, PairVerification, Source
+from groundmark.models import Source
 from groundmark.providers import ProviderFailure
 from groundmark.sources import canonical_url, private_json, text_digest
-from groundmark.verification import aggregate
 
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 RERANKER_REVISION = "233902d25c440f23af6f7d6e94d2946bac0bee0a"
@@ -47,7 +46,6 @@ def cosine(left: list[float], right: list[float]) -> float:
 
 @lru_cache(maxsize=1)
 def _cross_encoder():
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     os.environ.setdefault("HF_HOME", str(Path(".cache/huggingface").resolve()))
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     from sentence_transformers import CrossEncoder
@@ -61,13 +59,6 @@ class CrossEncoderReranker:
             [(claim, chunk.text) for chunk in chunks], batch_size=16, show_progress_bar=False
         )
         return list(scores)
-
-
-def needs_extraction(state: State) -> bool:
-    return any(
-        row["status"] == "not_enough_evidence" and row["claim"]["source_ids"]
-        for row in state.get("claims", [])
-    )
 
 
 def _cap_page(text: str, source_id: str, notes: list[str]) -> str:
@@ -134,119 +125,62 @@ def _vectorize(context: GraphContext, texts: list[str]) -> list[list[float]]:
     return vectors
 
 
-def _attempt_page(
+def _select_parts(
     context: GraphContext,
     source: Source,
     page: str,
-    claims: list[Claim],
+    question: str,
     reranker: Reranker | None,
     notes: list[str],
-    *,
-    question: str,
-) -> list[PairVerification]:
+) -> list[str]:
     chunks = chunk_page(page)
     try:
-        vectors = _vectorize(
-            context, [chunk.text for chunk in chunks] + [claim.text for claim in claims]
-        )
+        vectors = _vectorize(context, [chunk.text for chunk in chunks] + [question])
     except BudgetRefused:
         return []
     except ProviderFailure as error:
         notes.append(f"{source.source_id}: evidence embeddings unavailable ({error.kind})")
         return []
-    attempts = []
-    for claim, vector in zip(claims, vectors[len(chunks) :], strict=True):
-        order = sorted(range(len(chunks)), key=lambda index: -cosine(vectors[index], vector))
-        candidates = [chunks[index] for index in order[:20]]
-        if reranker is not None:
-            try:
-                scores = reranker.score(claim.text, candidates)
-                candidates = [
-                    item
-                    for _, item in sorted(
-                        zip(scores, candidates, strict=True), key=lambda row: -row[0]
-                    )
-                ]
-            except (ImportError, RuntimeError, OSError, ValueError):
-                notes.append(f"{source.source_id}: CPU reranker unavailable; used embedding order")
-                reranker = None
-        selected = candidates[:3]
-        supplied = "\n\n".join(chunk.text for chunk in selected)
-        attempts.extend(
-            context.verifier.verify_source(
-                [claim],
-                source,
-                supplied,
-                scope="page",
-                full_text=page,
-                preview=selected[0].text,
-                question=question,
-                today=context.today,
-            )
-        )
-        if context.calls.budget_stopped:
-            break
-    return attempts
+    order = sorted(range(len(chunks)), key=lambda index: -cosine(vectors[index], vectors[-1]))
+    candidates = [chunks[index] for index in order[:20]]
+    if reranker is not None:
+        try:
+            scores = reranker.score(question, candidates)
+            candidates = [
+                item
+                for _, item in sorted(zip(scores, candidates, strict=True), key=lambda row: -row[0])
+            ]
+        except (ImportError, RuntimeError, OSError, ValueError):
+            notes.append(f"{source.source_id}: CPU reranker unavailable; used embedding order")
+    return [chunk.text for chunk in candidates[:3]]
 
 
 def extract_evidence(
     state: State, context: GraphContext, reranker: Reranker | None = None
 ) -> State:
-    if not hasattr(context.verifier, "verify_source") or context.calls.budget_stopped:
-        return {}
-    claims = [ClaimResult.model_validate(row) for row in state.get("claims", [])]
-    pending: dict[str, list[Claim]] = {}
-    for row in claims:
-        if row.status == "not_enough_evidence":
-            for source_id in row.claim.source_ids:
-                pending.setdefault(source_id, []).append(row.claim)
-    sources = [
-        Source.model_validate(row)
-        for row in state.get("sources", [])
-        if row["source_id"] in pending
-    ][:5]
+    wanted = set(state["action"]["source_ids"])
+    sources = [Source.model_validate(row) for row in state.get("sources", [])]
+    selected = [source for source in sources if source.source_id in wanted][:5]
     notes = list(state.get("notes", []))
-    pages = _pages(sources, context, notes)
+    pages = _pages(selected, context, notes)
     if reranker is None and context.calls.settings.reranker == "cross-encoder":
         reranker = CrossEncoderReranker()
 
-    attempts = []
-    revisions = {}
-    for source in sources:
-        if source.source_id not in pages:
+    received = []
+    for source in selected:
+        page = pages.get(source.source_id)
+        if page is None or context.calls.budget_stopped:
             continue
-        attempts.extend(
-            _attempt_page(
-                context,
-                source,
-                pages[source.source_id],
-                pending[source.source_id],
-                reranker,
-                notes,
-                question=state["question"],
-            )
-        )
-        if context.calls.budget_stopped:
-            break
-    pairs = {(row.claim_id, row.source_id): row for row in attempts}
-    originals = []
-    for row in claims:
-        for pair in row.pairs:
-            key = (pair.claim_id, pair.source_id)
-            if key in pairs:
-                originals.append(pair)
-                if pairs[key].verdict != "not_enough_info":
-                    revisions[key] = pairs[key]
-    revised = [
-        aggregate(
-            row.claim,
-            [revisions.get((pair.claim_id, pair.source_id), pair) for pair in row.pairs],
-        ).model_dump(mode="json")
-        for row in claims
-    ]
+        parts = _select_parts(context, source, page, state["question"], reranker, notes)
+        if parts:
+            source.page_parts = parts
+            source.evidence_scope = "page"
+            received.append(source.source_id)
     return {
-        "claims": revised,
-        "extraction_attempts": [pair.model_dump(mode="json") for pair in originals + attempts],
-        "extracted_source_ids": list(pages),
+        "sources": [source.model_dump(mode="json") for source in sources],
+        "extracted_source_ids": list(
+            dict.fromkeys([*state.get("extracted_source_ids", []), *received])
+        ),
+        "last_extracted_ids": received,
         "notes": notes,
     }

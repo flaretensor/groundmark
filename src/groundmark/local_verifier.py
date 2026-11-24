@@ -61,7 +61,13 @@ class LocalNLIVerifier:
         return [
             pair
             for source in sources
-            for pair in self.verify_source(claims, source, source.content)
+            for pair in self.verify_source(
+                claims,
+                source,
+                source.evidence_text(),
+                scope=source.evidence_scope,
+                preview=source.page_parts[0] if source.page_parts else "",
+            )
             if pair.cited or pair.verdict != "not_enough_info"
         ]
 
@@ -80,7 +86,8 @@ class LocalNLIVerifier:
         if not claims:
             return []
         evidence = full_text if full_text is not None else text
-        spans = [span for span in exact_spans(text) if span in evidence]
+        parts = [source.content, *source.page_parts] if source.page_parts else [text]
+        spans = [span for part in parts for span in exact_spans(part) if span in evidence]
         judgments = []
         try:
             with _MODEL_LOCK:

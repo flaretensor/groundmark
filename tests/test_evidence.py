@@ -1,7 +1,7 @@
 import json
 from functools import partial
 
-from conftest import ScriptedLLM, ScriptedSearch, snippet
+from conftest import ScriptedLLM, ScriptedSearch, decision, snippet
 
 from groundmark.evidence import chunk_page, extract_evidence
 from groundmark.models import TokenUsage
@@ -16,12 +16,12 @@ def test_source_exact_chunks_with_offsets():
     assert all(item.text == text[item.start : item.end] for item in chunks)
 
 
-def test_extract_retries_verification_with_claim_specific_ranked_windows(settings):
+def test_model_selects_extraction_before_writing_and_checking(settings):
     content = "A plant was planned." + "x" * 1800 + " The plant opened in 2024."
     beyond_cap = "Text past the page limit."
     content = content.ljust(200_000, "x") + beyond_cap
     llm = ScriptedLLM(
-        Plan=[{"queries": ["plant"], "rationale": "Find the date."}],
+        Action=[decision(query="plant"), decision("extract", source_ids=["S999", "S1"])],
         Synthesis=[
             {
                 "summary": "The plant opened in 2024 [S1].",
@@ -34,16 +34,6 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
             }
         ],
         PairJudgments=[
-            {
-                "pairs": [
-                    {
-                        "claim_id": "C1",
-                        "verdict": "not_enough_info",
-                        "reason": "No date.",
-                        "evidence_quote": "",
-                    }
-                ]
-            },
             {
                 "pairs": [
                     {
@@ -67,12 +57,13 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
         def embed(self, texts, timeout):
             assert all(beyond_cap not in text for text in texts)
             return EmbeddingResponse(
-                [[1, float("2024" in text)] for text in texts], TokenUsage(input=70)
+                [[1, float("2024" in text or text == "When?")] for text in texts],
+                TokenUsage(input=70),
             )
 
     class Reranker:
         def score(self, claim, chunks):
-            assert claim == "The plant opened in 2024."
+            assert claim == "When?"
             return [float("2024" in chunk.text) for chunk in chunks]
 
     result = ResearchRunner(
@@ -85,11 +76,18 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
     assert result.claims[0].status == "supported"
     assert result.claims[0].pairs[0].evidence_scope == "page"
     assert result.trace.extracted_source_ids == ["S1"]
-    assert [(pair.evidence_scope, pair.verdict) for pair in result.trace.extraction_attempts] == [
-        ("snippet", "not_enough_info"),
-        ("page", "supports"),
+    search_step, extract_step = result.trace.trajectory
+    assert search_step.action == "search"
+    assert extract_step.action == "extract"
+    assert extract_step.source_ids == extract_step.result_source_ids == ["S1"]
+    assert [request.schema.__name__ for request in llm.requests] == [
+        "Action",
+        "Action",
+        "Synthesis",
+        "PairJudgments",
     ]
-    assert len(result.trace.extraction_attempts[1].evidence_preview) <= 600
+    assert "The plant opened in 2024." in llm.requests[-2].prompt
+    assert len(result.claims[0].pairs[0].evidence_preview) <= 600
     assert content not in result.model_dump_json()
     (snapshot,) = (settings.cache_dir / "extract").glob("*.json")
     assert json.loads(snapshot.read_text())["text"] == content[:200_000]

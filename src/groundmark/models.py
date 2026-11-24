@@ -12,6 +12,20 @@ class StrictOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class Action(StrictOutput):
+    action: Literal["search", "extract", "finish"]
+    query: str
+    source_ids: list[str]
+    rationale: str
+
+
+class ActionRecord(Action):
+    status: str
+    credits: int
+    latency_ms: float
+    result_source_ids: list[str]
+
+
 class Plan(StrictOutput):
     queries: list[str]
     rationale: str
@@ -34,6 +48,10 @@ class Source(BaseModel):
     query: str
     round_index: int
     evidence_scope: EvidenceScope = "snippet"
+    page_parts: list[str] = Field(default_factory=list)
+
+    def evidence_text(self, limit: int | None = None) -> str:
+        return "\n\n".join((self.content[:limit], *self.page_parts))
 
 
 class SearchRound(BaseModel):
@@ -148,6 +166,7 @@ class ResearchTrace(BaseModel):
     plan_rationale: str = ""
     rounds: list[SearchRound] = Field(default_factory=list)
     assessments: list[Assessment] = Field(default_factory=list)
+    trajectory: list[ActionRecord] = Field(default_factory=list)
     stop_reason: str
     claim_status_counts: dict[str, int] = Field(default_factory=dict)
     pair_verdict_counts: dict[str, int] = Field(default_factory=dict)

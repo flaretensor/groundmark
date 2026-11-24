@@ -11,7 +11,7 @@ from groundmark.analytics import append_result
 from groundmark.budget import BudgetRefused, SpendLedger, usd_amount
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
-from groundmark.evidence import extract_evidence, needs_extraction
+from groundmark.evidence import extract_evidence
 from groundmark.graph import GraphContext, build_graph, finalize
 from groundmark.local_verifier import LocalNLIVerifier
 from groundmark.models import Progress, ResearchResult
@@ -29,7 +29,7 @@ EXAMPLES = (
 
 
 class Options(BaseModel):
-    max_rounds: Annotated[int | None, Field(ge=1, le=2)] = None
+    max_rounds: Annotated[int | None, Field(ge=1)] = None
     max_credits: Annotated[int | None, Field(ge=0)] = None
     max_cost: Annotated[float | None, Field(ge=0)] = None
     use_cache: bool | None = None
@@ -129,7 +129,7 @@ class ResearchRunner:
         context = GraphContext(
             calls,
             self.verifier_factory(calls),
-            options.max_rounds or settings.max_rounds,
+            min(options.max_rounds or settings.max_searches, settings.max_searches),
             settings.use_cache if options.use_cache is None else options.use_cache,
             today=datetime.now(UTC).date().isoformat(),
         )
@@ -152,12 +152,15 @@ class ResearchRunner:
     def _run_graph(self, question: str, context: GraphContext, live: bool) -> ResearchResult:
         calls = context.calls
         telemetry = calls.telemetry
-        config = {"configurable": {"thread_id": calls.run_id}, "recursion_limit": 20}
+        config = {
+            "configurable": {"thread_id": calls.run_id},
+            "recursion_limit": 2 * self.settings.max_steps + 10,
+        }
         with (
             tracing_context(enabled=False),
             build_checkpointer(self.settings.checkpoint_url) as saver,
         ):
-            graph = build_graph(saver, self.extract_node, needs_extraction)
+            graph = build_graph(saver, self.extract_node)
             with telemetry.span(
                 "groundmark.research", **{"groundmark.run_id": calls.run_id}
             ) as root:

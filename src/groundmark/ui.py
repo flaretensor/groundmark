@@ -51,7 +51,7 @@ PROGRESS = {
     "assess": "Checking whether the sources answer the question…",
     "synthesize": "Writing claims from the sources…",
     "verify": "Checking each claim against the sources…",
-    "extract": "Reading full pages for claims the snippets didn't support…",
+    "extract": "Read full pages",
     "finalize": "Finishing up…",
 }
 FOLLOW_UP = "Running a follow-up search…"
