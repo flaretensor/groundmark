@@ -37,6 +37,16 @@ dependencies = [
 
 [project.optional-dependencies]
 rerank = ["sentence-transformers>=5.1", "torch>=2.8"]
+eval = [
+    "torch>=2.8",
+    "transformers>=4.56,<5",
+    "sentencepiece>=0.2",
+    "protobuf>=5",
+    "pandas>=2.2",
+    "scikit-learn>=1.6",
+    "numpy>=2",
+    "mlflow-skinny>=3.5",
+]
 
 [project.scripts]
 groundmark = "groundmark.cli:main"
@@ -48,13 +58,29 @@ dev = ["pytest>=8.4", "pytest-socket>=0.7", "ruff>=0.14"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/groundmark"]
 
+[tool.uv]
+conflicts = [
+    [
+        { extra = "rerank" },
+        { extra = "eval" },
+    ],
+]
+
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+torch = [
+    { index = "pytorch-cpu", extra = "rerank", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu128", extra = "eval", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
 
 [tool.pytest.ini_options]
 addopts = "--disable-socket --allow-unix-socket -q"
