@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 MODEL = "nvidia/Nemotron-3.5-Super-VL"
+JUDGE_MODEL = "openai/gpt-oss-120b"
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-8B"
 CATALOG_RETRIEVED = "2026-11-20"
 CATALOG_URL = "https://tokenfactory.nebius.com/api/public/models_info"
@@ -23,7 +24,10 @@ class Price:
         )
 
 
+COMPLETION_MODELS = (MODEL, JUDGE_MODEL)
+
 PRICES = {
     MODEL: Price(input=300, cached=60, output=900),
+    JUDGE_MODEL: Price(input=150, cached=150, output=600),
     EMBEDDING_MODEL: Price(input=10, cached=10, output=0),
 }

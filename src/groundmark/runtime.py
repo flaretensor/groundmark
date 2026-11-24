@@ -150,9 +150,10 @@ class Calls:
         *,
         thinking: bool = False,
         temperature: float = 0.1,
+        model: str | None = None,
     ) -> Output:
         request = CompletionRequest(
-            model=self.settings.model,
+            model=model or self.settings.model,
             system=system,
             prompt=prompt,
             schema=schema,

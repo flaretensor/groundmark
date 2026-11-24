@@ -13,6 +13,7 @@ from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
 from groundmark.evidence import extract_evidence, needs_extraction
 from groundmark.graph import GraphContext, build_graph, finalize
+from groundmark.local_verifier import LocalNLIVerifier
 from groundmark.models import Progress, ResearchResult
 from groundmark.providers import Embedder, LLMClient, NebiusClient, SearchClient, TavilySearchClient
 from groundmark.runtime import Calls
@@ -47,7 +48,7 @@ class ResearchRunner:
         llm: LLMClient | None = None,
         search: SearchClient | None = None,
         embedder: Embedder | None = None,
-        verifier_factory: Callable[[Calls], Verifier] = NebiusVerifier,
+        verifier_factory: Callable[[Calls], Verifier] | None = None,
         extract_node=extract_evidence,
     ):
         self.settings = settings or Settings()
@@ -55,7 +56,9 @@ class ResearchRunner:
         self.llm = llm
         self.search = search
         self.embedder = embedder
-        self.verifier_factory = verifier_factory
+        self.verifier_factory = verifier_factory or (
+            LocalNLIVerifier if self.settings.checker == "local-nli" else NebiusVerifier
+        )
         self.extract_node = extract_node
 
     def run(
@@ -69,7 +72,8 @@ class ResearchRunner:
 
         settings = self.settings
         options = options or Options()
-        credentials = self.credentials or Credentials.load()
+        live = self.llm is None or self.search is None
+        credentials = self.credentials or (Credentials.load() if live else Credentials("", ""))
         question = clean_text(credentials.redact(question.strip())).strip()
         if not question:
             raise ResearchFailure("invalid_question")
@@ -92,7 +96,6 @@ class ResearchRunner:
             usd_amount(settings.max_total_tavily_credits, settings.max_total_usd),
         )
         run_id = str(uuid4())
-        live = self.llm is None or self.search is None
         nebius = NebiusClient(credentials.nebius.get_secret_value()) if self.llm is None else None
         tavily = (
             TavilySearchClient(credentials.tavily.get_secret_value())

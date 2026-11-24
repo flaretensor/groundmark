@@ -185,6 +185,7 @@ class NebiusVerifier:
                 prompt,
                 thinking=True,
                 temperature=0.2,
+                model=self.calls.settings.resolved_checker_model,
             )
             counts = Counter(pair.claim_id for pair in answer.pairs)
             returned = {pair.claim_id: pair for pair in answer.pairs if counts[pair.claim_id] == 1}

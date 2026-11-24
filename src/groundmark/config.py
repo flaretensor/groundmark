@@ -3,18 +3,26 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from dotenv import dotenv_values
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from groundmark.pricing import MODEL
+from groundmark.nli import NLI_MODELS
+from groundmark.pricing import COMPLETION_MODELS, JUDGE_MODEL, MODEL
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="GROUNDMARK_", env_file=".env", extra="ignore", frozen=True
+        env_prefix="GROUNDMARK_",
+        env_file=".env",
+        extra="ignore",
+        frozen=True,
+        populate_by_name=True,
     )
 
-    model: Literal[MODEL] = Field(MODEL, validation_alias="NEBIUS_MODEL")
+    model: str = Field(MODEL, validation_alias="NEBIUS_MODEL")
+    judge_model: str = JUDGE_MODEL
+    checker: Literal["nebius", "local-nli"] = "nebius"
+    checker_model: str | None = None
     max_rounds: Annotated[int, Field(ge=1, le=2)] = 2
     max_tavily_credits: Annotated[int, Field(ge=0)] = 6
     max_usd: Annotated[float, Field(ge=0)] = 0.15
@@ -33,6 +41,20 @@ class Settings(BaseSettings):
     api_url: str = ""
     otlp_endpoint: str = Field("", validation_alias="OTEL_EXPORTER_OTLP_ENDPOINT")
     mlflow_tracking_uri: str = Field("", validation_alias="MLFLOW_TRACKING_URI")
+
+    @model_validator(mode="after")
+    def known_models(self) -> "Settings":
+        if self.model not in COMPLETION_MODELS or self.judge_model not in COMPLETION_MODELS:
+            raise ValueError("Unregistered completion model")
+        candidates = NLI_MODELS if self.checker == "local-nli" else COMPLETION_MODELS
+        if self.resolved_checker_model not in candidates:
+            raise ValueError("Unregistered checker model")
+        return self
+
+    @property
+    def resolved_checker_model(self) -> str:
+        default = next(reversed(NLI_MODELS)) if self.checker == "local-nli" else self.model
+        return self.checker_model or default
 
     @property
     def ledger_path(self) -> Path:

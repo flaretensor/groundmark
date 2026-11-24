@@ -9,7 +9,7 @@ from tavily import TavilyClient
 from tavily.errors import TimeoutError as TavilyTimeout
 
 from groundmark.models import TokenUsage
-from groundmark.pricing import EMBEDDING_MODEL
+from groundmark.pricing import EMBEDDING_MODEL, JUDGE_MODEL
 
 NEBIUS_URL = "https://api.tokenfactory.nebius.com/v1/"
 
@@ -118,7 +118,7 @@ class NebiusClient:
         if request.thinking:
             # Keep reasoning enabled while reserving room for the structured response.
             thinking["medium_effort"] = True
-        extra = {"chat_template_kwargs": thinking}
+        extra = None if request.model == JUDGE_MODEL else {"chat_template_kwargs": thinking}
         try:
             response = self.client.chat.completions.create(
                 model=request.model,
