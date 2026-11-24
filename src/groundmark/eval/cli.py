@@ -1,5 +1,6 @@
 import argparse
 import json
+from decimal import Decimal
 from pathlib import Path
 
 from groundmark.eval.datasets import DATASETS
@@ -36,8 +37,9 @@ def main(argv: list[str] | None = None) -> None:
     judge.add_argument("--confirm-test", action="store_true")
     validate = commands.add_parser("judge-validate")
     validate.add_argument("--dataset", choices=("evouna",), required=True)
-    validate.add_argument("--stage", choices=("smoke", "dev"), default="dev")
-    validate.add_argument("--limit", type=int)
+    validate.add_argument("--live", action="store_true", required=True)
+    validate.add_argument("--stage-cap-usd", type=Decimal, required=True)
+    validate.add_argument("--mlflow-uri", default="")
     report = commands.add_parser("report")
     report.add_argument("--stage", choices=STAGES, required=True)
     report.add_argument("--mlflow-uri")
@@ -121,12 +123,12 @@ def _evaluate(args) -> None:
 
         print(json.dumps({"graded_arms": grade_live(args.stage, Settings())}))
     elif args.command == "judge-validate":
-        from groundmark.eval.judge import live_judge, validate_evouna
+        from groundmark.budget import usd_amount
+        from groundmark.eval.evouna import run_validation
 
-        if args.limit is not None and args.limit < 1:
-            raise ValueError("--limit must be positive")
-        with live_judge(Settings(), stage_ledger(ROOT, args.stage)) as judge:
-            print(json.dumps(validate_evouna(judge, limit=args.limit)))
+        if not args.stage_cap_usd.is_finite() or not 0 < args.stage_cap_usd <= Decimal("0.50"):
+            raise ValueError("--stage-cap-usd must be positive and at most 0.50")
+        print(json.dumps(run_validation(usd_amount(0, args.stage_cap_usd), args.mlflow_uri)))
     elif args.command == "report":
         from groundmark.eval.report import report
 

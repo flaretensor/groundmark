@@ -86,6 +86,16 @@ class SpendLedger:
                 if row.get("scope") == self.scope and row["event"] == "reserve"
             }
 
+    def scope_unsettled(self) -> int:
+        with self._locked() as (rows, _):
+            settled = {row["call_id"] for row in rows if row["event"] == "settle"}
+            return sum(
+                row.get("scope") == self.scope
+                and row["event"] == "reserve"
+                and row["call_id"] not in settled
+                for row in rows
+            )
+
     def _limits(self, rows: list[dict], run_id: str, limit: Amount):
         yield limit, self._used(rows, run_id), False
         yield self.total_limit, self._used(rows), self.scope is not None

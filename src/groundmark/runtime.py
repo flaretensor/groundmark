@@ -47,6 +47,7 @@ class Calls:
     credits_stopped: bool = False
     usd_stopped: bool = False
     lock: Lock = field(default_factory=Lock)
+    retry_statuses: frozenset[int] | None = None
 
     @property
     def budget_stopped(self) -> bool:
@@ -138,7 +139,12 @@ class Calls:
                     )
                     return response
                 except (ProviderFailure, BudgetRefused) as error:
-                    retry = isinstance(error, ProviderFailure) and error.retryable and attempt == 1
+                    retry = (
+                        isinstance(error, ProviderFailure)
+                        and error.retryable
+                        and (self.retry_statuses is None or error.status in self.retry_statuses)
+                        and attempt == 1
+                    )
                     self.error(stage, error, retried=retry)
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute(
