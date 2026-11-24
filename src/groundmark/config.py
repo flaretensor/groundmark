@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     cache_dir: Path = Path(".cache")
     artifacts_dir: Path = Path(".artifacts")
     use_cache: bool = False
+    exclude_domains: tuple[str, ...] = ()
     require_quote: bool = True
     reranker: Literal["cross-encoder", "none"] = "none"
     api_url: str = ""

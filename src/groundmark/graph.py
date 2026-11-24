@@ -235,7 +235,9 @@ def search(state: State, context: GraphContext, query: str) -> State:
     added = []
     hit = False
     stopped = ""
-    path = context.calls.settings.cache_dir / "tavily" / f"{text_digest(query)}.json"
+    settings = context.calls.settings
+    cache_key = json.dumps([query, settings.exclude_domains]) if settings.exclude_domains else query
+    path = settings.cache_dir / "tavily" / f"{text_digest(cache_key)}.json"
     try:
         response, timestamp, hit = _replay(path, context, query)
     except BudgetRefused:

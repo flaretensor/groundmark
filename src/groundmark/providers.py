@@ -102,7 +102,9 @@ class LLMClient(Protocol):
 
 
 class SearchClient(Protocol):
-    def search(self, query: str, timeout: float) -> SearchResponse: ...
+    def search(
+        self, query: str, timeout: float, *, exclude_domains: tuple[str, ...] = ()
+    ) -> SearchResponse: ...
 
     def extract(self, urls: list[str], timeout: float) -> ExtractionResponse: ...
 
@@ -196,7 +198,10 @@ class TavilySearchClient:
         credits = usage.get("credits") if isinstance(usage, dict) else None
         return credits if type(credits) is int and credits >= 0 else None
 
-    def search(self, query: str, timeout: float) -> SearchResponse:
+    def search(
+        self, query: str, timeout: float, *, exclude_domains: tuple[str, ...] = ()
+    ) -> SearchResponse:
+        filters = {"exclude_domains": list(exclude_domains)} if exclude_domains else {}
         try:
             data = self.client.search(
                 query,
@@ -207,6 +212,7 @@ class TavilySearchClient:
                 include_published_date=True,
                 auto_parameters=False,
                 timeout=timeout,
+                **filters,
             )
         except (TavilyTimeout, requests.Timeout):
             raise ProviderFailure("tavily", "timeout") from None

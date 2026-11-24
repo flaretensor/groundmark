@@ -222,12 +222,17 @@ class Calls:
         )
 
     def search(self, query: str) -> SearchResponse:
+        filters = (
+            {"exclude_domains": self.settings.exclude_domains}
+            if self.settings.exclude_domains
+            else {}
+        )
         response = self._request(
             "search",
             "search",
             "tavily",
             Amount(credits=1),
-            lambda: self.search_client.search(query, self.settings.tavily_timeout),
+            lambda: self.search_client.search(query, self.settings.tavily_timeout, **filters),
             lambda response: (
                 Amount(credits=1 if response.credits is None else response.credits),
                 None,
@@ -237,7 +242,7 @@ class Calls:
 
         self._tavily_receipt(
             "search",
-            {"query": query},
+            {"query": query, **filters},
             response.raw
             or {
                 "results": response.results,

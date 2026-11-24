@@ -38,3 +38,25 @@ def test_thinking_and_strict_schema_payload(thinking):
         assert result.finish_reason == "stop"
     finally:
         client.close()
+
+
+def test_tavily_search_passes_exclusions_only_when_configured():
+    from groundmark.providers import TavilySearchClient
+
+    requests = []
+    client = TavilySearchClient("mock-tavily")
+
+    def search(query, **kwargs):
+        requests.append((query, kwargs))
+        return {"results": [], "usage": {"credits": 1}}
+
+    try:
+        client.client.search = search
+        assert client.search("query", 1).credits == 1
+        assert (
+            client.search("query", 1, exclude_domains=("huggingface.co", "kaggle.com")).credits == 1
+        )
+    finally:
+        client.close()
+    assert "exclude_domains" not in requests[0][1]
+    assert requests[1][1]["exclude_domains"] == ["huggingface.co", "kaggle.com"]
