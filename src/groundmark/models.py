@@ -19,6 +19,13 @@ class Action(StrictOutput):
     rationale: str
 
 
+class ExtractOrFinishAction(Action):
+    # Constrain the provider's schema while accepting search for the local finish fallback.
+    action: Literal["search", "extract", "finish"] = Field(
+        json_schema_extra={"enum": ["extract", "finish"]}
+    )
+
+
 class ActionRecord(Action):
     status: str
     credits: int

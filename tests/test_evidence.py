@@ -21,7 +21,8 @@ def test_model_selects_extraction_before_writing_and_checking(settings):
     beyond_cap = "Text past the page limit."
     content = content.ljust(200_000, "x") + beyond_cap
     llm = ScriptedLLM(
-        Action=[decision(query="plant"), decision("extract", source_ids=["S999", "S1"])],
+        Action=[decision(query="plant")],
+        ExtractOrFinishAction=[decision("extract", source_ids=["S999", "S1"])],
         Synthesis=[
             {
                 "summary": "The plant opened in 2024 [S1].",
@@ -82,7 +83,7 @@ def test_model_selects_extraction_before_writing_and_checking(settings):
     assert extract_step.source_ids == extract_step.result_source_ids == ["S1"]
     assert [request.schema.__name__ for request in llm.requests] == [
         "Action",
-        "Action",
+        "ExtractOrFinishAction",
         "Synthesis",
         "PairJudgments",
     ]

@@ -17,6 +17,7 @@ from groundmark.models import (
     ClaimResult,
     Conflict,
     ConflictResult,
+    ExtractOrFinishAction,
     Progress,
     ResearchResult,
     ResearchTrace,
@@ -184,12 +185,8 @@ def decide(state: State, context: GraphContext) -> State:
         + _source_prompt(_synthesis_sources(sources), limit=1200)
     )
     try:
-        action = context.calls.structured("decide", Action, DECIDE_SYSTEM, prompt)
-        if search_unavailable and action.action == "search":
-            with context.calls.telemetry.span(
-                "groundmark.decide.reask", **{"groundmark.reask": True}
-            ):
-                action = context.calls.structured("decide", Action, DECIDE_SYSTEM, prompt)
+        schema = ExtractOrFinishAction if search_unavailable else Action
+        action = context.calls.structured("decide", schema, DECIDE_SYSTEM, prompt)
     except BudgetRefused:
         return {"stop_reason": "budget"}
     except ProviderFailure:
