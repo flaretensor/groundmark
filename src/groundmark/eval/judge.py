@@ -12,7 +12,7 @@ from uuid import uuid4
 from groundmark.budget import BudgetRefused, SpendLedger, usd_amount
 from groundmark.config import Credentials, Settings
 from groundmark.eval.datasets import EVOUNA, EVOUNA_JUDGES, evouna_counts
-from groundmark.eval.judge_template import GRADER_TEMPLATE
+from groundmark.eval.graders import ORIGINAL, Grader, dataset_graders
 from groundmark.eval.runner import ROOT, stage_ledger, stage_lock
 from groundmark.models import StrictOutput
 from groundmark.providers import LLMClient, NebiusClient, ProviderFailure
@@ -40,11 +40,19 @@ class AnswerJudge:
     ledger: SpendLedger
     llm: LLMClient
 
-    def estimate(self, question: str, gold: str, answer: str, *, alternatives: bool = False) -> str:
+    def estimate(
+        self,
+        question: str,
+        gold: str,
+        answer: str,
+        *,
+        grader: Grader = ORIGINAL,
+        alternatives: bool = False,
+    ) -> str:
         def escape(text: str) -> str:
             return self.credentials.redact(text).replace("```", "\\u0060" * 3)
 
-        prompt = GRADER_TEMPLATE.format(
+        prompt = grader.text.format(
             question=escape(question), target=escape(gold), predicted_answer=escape(answer)
         )
         system = SYSTEM
@@ -91,6 +99,7 @@ def judge_stage(directory: Path, judge: AnswerJudge) -> int:
             raise ValueError("No evaluation results to judge")
         for path in paths:
             row = json.loads(path.read_bytes())
+            (grader,) = dataset_graders(row["dataset"])
             known = {
                 arm["answer"]: arm["grade"]
                 for arm in row["arms"].values()
@@ -98,13 +107,18 @@ def judge_stage(directory: Path, judge: AnswerJudge) -> int:
             }
             if known and row.get("judge_model") != judge.settings.judge_model:
                 raise ValueError("Existing evaluation grades use a different judge model")
+            known = {
+                arm["answer"]: arm["grade"]
+                for arm in row["arms"].values()
+                if arm.get("grader_sha256") == grader.sha256 and arm["grade"] in LETTERS.values()
+            }
             for arm in row["arms"].values():
                 if arm["abstain"] or arm["grade"] is not None:
                     continue
                 try:
                     if arm["answer"] not in known:
                         known[arm["answer"]] = judge.estimate(
-                            row["question"], row["gold"], arm["answer"]
+                            row["question"], row["gold"], arm["answer"], grader=grader
                         )
                 except BudgetRefused:
                     return completed
@@ -114,7 +128,8 @@ def judge_stage(directory: Path, judge: AnswerJudge) -> int:
                     return completed
                 arm["grade"] = known[arm["answer"]]
                 row["judge_model"] = judge.settings.judge_model
-                row["grader_revision"] = GRADER_REVISION
+                arm["grader_template"] = grader.name
+                arm["grader_sha256"] = grader.sha256
                 row.pop("judge_error", None)
                 private_json(path, row)
                 completed += 1

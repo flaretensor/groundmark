@@ -1,0 +1,24 @@
+{
+  "source": "Transcription from paper appendices",
+  "byte_verified_against_authors_released_code": false,
+  "encoding": "UTF-8",
+  "normalizations": [
+    "ASCII apostrophes and quotes",
+    "Triple backticks for code fences",
+    "PDF line wraps joined into one line per sentence or bullet",
+    "Sub-bullets indented by 2 spaces per level",
+    "Stray blank line after the second CORRECT bullet in the SealQA PDF layout omitted"
+  ],
+  "templates": {
+    "simpleqa_verified": {
+      "arxiv": "2509.07968v2",
+      "appendix": "A",
+      "sha256": "d83b7ad017c88527fe3b0e5b93e371f4e0c66b7382e5c6cdefcc7b29468f541a"
+    },
+    "sealqa": {
+      "arxiv": "2506.01062v4",
+      "appendix": "C",
+      "sha256": "01b87e0b3c79cbaf68e3ba6d26df6c8f818bd427defebc76c83db5b78150f158"
+    }
+  }
+}

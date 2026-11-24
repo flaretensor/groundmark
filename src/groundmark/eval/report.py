@@ -92,6 +92,12 @@ def report(stage: str, root: Path = ROOT, mlflow_uri: str = "") -> dict:
         **summarize(rows),
         "stage": stage,
         "expected_questions": EXPECTED[stage],
+        "grader_templates": {
+            arm["grader_template"]: arm["grader_sha256"]
+            for row in rows
+            for arm in row["arms"].values()
+            if "grader_template" in arm
+        },
         "seal_0": summarize([row for row in rows if row["seal_0"]]),
         "datasets": {
             dataset: summarize([row for row in rows if row["dataset"] == dataset])
@@ -123,6 +129,8 @@ def log_mlflow(summary: dict, root: Path, uri: str) -> None:
     identifier = experiment.experiment_id if experiment else client.create_experiment(name)
     run_id = client.create_run(identifier).info.run_id
     try:
+        for template, sha256 in summary["grader_templates"].items():
+            client.log_param(run_id, f"grader.{template}.sha256", sha256)
         for key in (
             "questions",
             "tavily_credits_charged_or_reserved",
