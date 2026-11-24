@@ -17,7 +17,7 @@ from groundmark.models import (
     Source,
     TokenUsage,
 )
-from groundmark.providers import Completion, ProviderFailure
+from groundmark.providers import Completion, EmbeddingResponse, ExtractionResponse, ProviderFailure
 from groundmark.research import Options, ResearchRunner
 from groundmark.verification import SYSTEM, aggregate, checked_pair, match_quote
 
@@ -117,7 +117,7 @@ def test_single_round_trace_and_checkpoint(settings, outcome):
 
 def test_followup_dedup_immutable_ids_and_round_limit(settings):
     llm = ScriptedLLM(
-        Action=[decision(query="first"), decision(query="second"), decision(query="third")],
+        Action=[decision(query="first"), decision(query="second")],
         Synthesis=[synthesis(insufficient=True)],
     )
     search = ScriptedSearch(
@@ -128,10 +128,73 @@ def test_followup_dedup_immutable_ids_and_round_limit(settings):
             snippet(url="https://other.example/", content="An update in 2025."),
         ],
     )
-    result = ResearchRunner(settings, llm=llm, search=search).run("When?", Options(max_rounds=2))
+    capped = settings.model_copy(update={"max_extract_calls": 0})
+    result = ResearchRunner(capped, llm=llm, search=search).run("When?", Options(max_rounds=2))
     assert [rd.source_ids for rd in result.trace.rounds] == [["S1"], ["S2"]]
     assert result.trace.stop_reason == "max_searches"
     assert search.requests == ["first", "second"]
+    assert [request.schema.__name__ for request in llm.requests] == [
+        "Action",
+        "Action",
+        "Synthesis",
+    ]
+
+
+@pytest.mark.parametrize("after_cap", ["extract", "search", "already_extracted"])
+def test_search_cap_preserves_available_extract_and_reasks_only_once(settings, after_cap):
+    actions = [decision(query=query) for query in ("first", "second", "third")]
+    extract = decision("extract", source_ids=["S1"])
+    if after_cap == "already_extracted":
+        actions.insert(1, extract)
+    else:
+        actions.extend(
+            [
+                decision(query="fourth"),
+                extract if after_cap == "extract" else decision(query="fifth"),
+            ]
+        )
+    llm = ScriptedLLM(Action=actions, Synthesis=[synthesis(insufficient=True)])
+    search = ScriptedSearch(
+        [snippet(content="A plant was planned.")],
+        [snippet(url="https://two.example/", content="A second source.")],
+        [snippet(url="https://three.example/", content="A third source.")],
+        extraction=ExtractionResponse(
+            [{"url": "https://example.org/", "raw_content": "The plant opened in 2024."}], [], 1
+        ),
+    )
+
+    class Embedder:
+        def embed(self, texts, timeout):
+            return EmbeddingResponse([[1.0, 0.0] for _ in texts], TokenUsage())
+
+    result = ResearchRunner(settings, llm=llm, search=search, embedder=Embedder()).run("When?")
+    trace = result.trace
+    assert trace.stop_reason == "max_searches"
+    assert search.requests == ["first", "second", "third"]
+    assert len(trace.trajectory) == 4
+    assert all(step.status == "executed" for step in trace.trajectory)
+    assert (
+        trace.trajectory[-1].action
+        == {"extract": "extract", "search": "finish", "already_extracted": "search"}[after_cap]
+    )
+    assert trace.tavily_credits == (3 if after_cap == "search" else 4)
+    assert trace.extracted_source_ids == ([] if after_cap == "search" else ["S1"])
+
+    restriction = "Search is unavailable. Only extract or finish are allowed."
+    decisions = [request for request in llm.requests if request.schema.__name__ == "Action"]
+    reasks = [span for span in trace.spans if span.attributes.get("groundmark.reask")]
+    if after_cap == "already_extracted":
+        assert len(decisions) == 4 and not reasks
+        assert all(restriction not in request.prompt for request in decisions)
+    else:
+        assert len(decisions) == 5 and len(reasks) == 1
+        assert all(restriction not in request.prompt for request in decisions[:3])
+        assert decisions[-2].prompt == decisions[-1].prompt
+        assert decisions[-1].prompt.splitlines().count(restriction) == 1
+        completion = next(span for span in trace.spans if span.parent_id == reasks[0].span_id)
+        assert completion.attributes["gen_ai.usage.input_tokens"] == 40
+        assert completion.attributes["groundmark.estimated_usd"] > 0
+    assert all(request.system == DECIDE_SYSTEM for request in decisions)
 
 
 def test_unanswerable_finish_yields_zero_claims_and_explicit_gap(settings):

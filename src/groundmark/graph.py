@@ -74,6 +74,7 @@ SYNTHESIS_SYSTEM = (
 class State(TypedDict, total=False):
     question: str
     action: dict
+    finish_reason: str
     trajectory: list[dict]
     plan_rationale: str
     sources: list[dict]
@@ -153,7 +154,8 @@ def decide(state: State, context: GraphContext) -> State:
             )
         context.calls.error("decide", BudgetRefused(kind="credits"))
         return {"stop_reason": "budget"}
-    if searches >= context.max_searches and (not sources or extracts >= settings.max_extract_calls):
+    search_unavailable = searches >= context.max_searches
+    if search_unavailable and (not sources or extracts >= settings.max_extract_calls):
         return {"stop_reason": "max_searches" if sources else "no_sources"}
 
     remaining_usd = (
@@ -165,7 +167,12 @@ def decide(state: State, context: GraphContext) -> State:
         f"searches: {context.max_searches - searches}; "
         f"extractions: {settings.max_extract_calls - extracts}; "
         f"Tavily credits: {credits}; estimated USD: {remaining_usd:.6f}.\n"
-        "Prior actions: "
+        + (
+            "Search is unavailable. Only extract or finish are allowed.\n"
+            if search_unavailable
+            else ""
+        )
+        + "Prior actions: "
         + json.dumps(
             [
                 {key: entry[key] for key in ("action", "query", "source_ids", "status")}
@@ -178,6 +185,11 @@ def decide(state: State, context: GraphContext) -> State:
     )
     try:
         action = context.calls.structured("decide", Action, DECIDE_SYSTEM, prompt)
+        if search_unavailable and action.action == "search":
+            with context.calls.telemetry.span(
+                "groundmark.decide.reask", **{"groundmark.reask": True}
+            ):
+                action = context.calls.structured("decide", Action, DECIDE_SYSTEM, prompt)
     except BudgetRefused:
         return {"stop_reason": "budget"}
     except ProviderFailure:
@@ -188,6 +200,10 @@ def decide(state: State, context: GraphContext) -> State:
     selected = list(dict.fromkeys(key for key in action.source_ids if key in known_ids))[:5]
     rationale = context.safe(action.rationale).strip()[:400]
     kind = action.action
+    update: State = {}
+    if search_unavailable and kind == "search":
+        kind = "finish"
+        update["finish_reason"] = "max_searches"
     if not previous:
         query = query if kind == "search" and query else state["question"]
         kind = "search"
@@ -197,7 +213,7 @@ def decide(state: State, context: GraphContext) -> State:
         source_ids=selected if kind == "extract" else [],
         rationale=rationale,
     )
-    update: State = {"action": action.model_dump(mode="json")}
+    update["action"] = action.model_dump(mode="json")
     if not previous:
         update["plan_rationale"] = rationale
     return update
@@ -293,7 +309,9 @@ def act(state: State, context: GraphContext, extract_node) -> State:
     result_ids = []
     update: State = {}
     if action.action == "finish":
-        update["stop_reason"] = "completed" if state.get("sources") else "no_sources"
+        update["stop_reason"] = state.get("finish_reason") or (
+            "completed" if state.get("sources") else "no_sources"
+        )
     elif action.action == "search":
         query_hashes = {
             text_digest(query) for row in state.get("rounds", []) for query in row["queries"]
