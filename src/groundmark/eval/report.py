@@ -1,5 +1,7 @@
 import json
+import sqlite3
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 from uuid import UUID
 
@@ -14,7 +16,8 @@ PAIRS = (("D", "A"), ("D", "C"), ("B", "A"))
 LATENCY_LABELS = {
     "cumulative_batch_ms": "Time since batch start",
     "processing_ms": "Per-question eval processing",
-    "total_latency_ms": "Product trace latency",
+    "graph_ms": "Product graph latency",
+    "total_latency_ms": "Trace latency incl. eval A/B hook",
 }
 
 
@@ -53,7 +56,7 @@ def _latency_quantiles(rows: list[dict], field: str) -> dict:
     return dict(zip(("p50", "p95"), quantiles, strict=True))
 
 
-def _recorded_product_latency(root: Path, run_id: str | None) -> float | None:
+def _recorded_trace_latency(root: Path, run_id: str | None) -> float | None:
     if run_id is None:
         return None
     try:
@@ -68,6 +71,31 @@ def _recorded_product_latency(root: Path, run_id: str | None) -> float | None:
         # The product run receipt stores trace.total_latency_ms as latency_ms.
         return receipt.read(columns=["latency_ms"])[0][0].as_py()
     return None
+
+
+def _recover_graph_latency(rows: list[dict], root: Path) -> None:
+    pending = [row for row in rows if row.get("graph_ms") is None and row.get("run_id")]
+    checkpoint = root.parent.parent / ".cache" / "checkpoints.sqlite"
+    if not pending or not checkpoint.is_file():
+        return
+
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    serde = JsonPlusSerializer()
+    uri = checkpoint.resolve().as_uri() + "?mode=ro&immutable=1"
+    with closing(sqlite3.connect(uri, uri=True)) as db:
+        for row in pending:
+            saved = db.execute(
+                "SELECT type, checkpoint FROM checkpoints "
+                "WHERE thread_id = ? AND checkpoint_ns = '' ORDER BY checkpoint_id DESC LIMIT 1",
+                (row["run_id"],),
+            ).fetchone()
+            if saved is None:
+                continue
+            state = serde.loads_typed(saved)["channel_values"]
+            stages = state.get("result", {}).get("trace", {}).get("stage_latency_ms")
+            if stages:
+                row["graph_ms"] = sum(stages.values())
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -110,6 +138,7 @@ def summarize(rows: list[dict]) -> dict:
         "cumulative_batch_ms": _latency_quantiles(rows, "latency_ms"),
         # Per-question wall time includes extra A/B processing and grading when run inline.
         "processing_ms": _latency_quantiles(rows, "processing_ms"),
+        "graph_ms": _latency_quantiles(rows, "graph_ms"),
         "total_latency_ms": _latency_quantiles(rows, "total_latency_ms"),
         "stop_reasons": dict(Counter(row["stop_reason"] for row in rows)),
     }
@@ -120,13 +149,18 @@ def report(stage: str, root: Path = ROOT, mlflow_uri: str = "") -> dict:
     rows = [json.loads(path.read_bytes()) for path in paths]
     for row in rows:
         if row.get("total_latency_ms") is None:
-            row["total_latency_ms"] = _recorded_product_latency(root, row.get("run_id"))
+            row["total_latency_ms"] = _recorded_trace_latency(root, row.get("run_id"))
+    _recover_graph_latency(rows, root)
     ledger_path = root / "spend_ledger.jsonl"
     used = stage_ledger(root, stage).scope_total() if ledger_path.is_file() else None
     summary = {
         **summarize(rows),
         "stage": stage,
         "expected_questions": EXPECTED[stage],
+        "latency_labels": LATENCY_LABELS,
+        "graph_ms_by_question": {
+            row["question_id"]: row.get("graph_ms") for row in rows if "question_id" in row
+        },
         "grader_templates": {
             arm["grader_template"]: arm["grader_sha256"]
             for row in rows
@@ -171,6 +205,11 @@ def latency_markdown(summary: dict) -> str:
                 for value in (results[field]["p50"], results[field]["p95"])
             )
             lines.append(f"| {scope} | {label} | {p50} | {p95} |")
+    if summary["graph_ms_by_question"]:
+        lines.extend(("", "| Question ID | Product graph latency (ms) |", "|---|---:|"))
+        for question, value in summary["graph_ms_by_question"].items():
+            timing = f"{value:.2f}" if value is not None else "not recorded"
+            lines.append(f"| {question} | {timing} |")
     return "\n".join(lines)
 
 
@@ -185,6 +224,7 @@ def log_mlflow(summary: dict, root: Path, uri: str) -> None:
     identifier = experiment.experiment_id if experiment else client.create_experiment(name)
     run_id = client.create_run(identifier).info.run_id
     try:
+        client.log_param(run_id, "total_latency_ms.definition", LATENCY_LABELS["total_latency_ms"])
         for template, sha256 in summary["grader_templates"].items():
             client.log_param(run_id, f"grader.{template}.sha256", sha256)
         for key in (

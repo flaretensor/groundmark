@@ -1,6 +1,7 @@
 import json
+import sqlite3
 import sys
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -8,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from conftest import ScriptedLLM, ScriptedSearch, decision, snippet
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from groundmark import config
 from groundmark.budget import Amount, BudgetRefused, SpendLedger, usd_amount
@@ -267,6 +269,7 @@ def test_live_smoke_command_grades_each_dataset_and_passes_template_hashes_to_ml
         (grader,) = dataset_graders(row["dataset"])
         expected[grader.name] = grader.sha256
         assert 0 < row["total_latency_ms"] <= row["processing_ms"]
+        assert 0 < row["graph_ms"] <= row["total_latency_ms"]
         assert row["arms"]["A"]["grader_template"] == grader.name
         assert row["arms"]["A"]["grader_sha256"] == grader.sha256
         assert row["judge_usage"][0]["tokens"]["input"] == 40
@@ -275,12 +278,22 @@ def test_live_smoke_command_grades_each_dataset_and_passes_template_hashes_to_ml
 
 
 def test_eval_report_latency_clocks_and_legacy_product_receipt(tmp_path, monkeypatch, capsys):
-    root = tmp_path / "eval"
+    root = tmp_path / ".artifacts" / "eval"
     (root / "smoke").mkdir(parents=True)
     run_id = "4f59296b-3b4b-4727-bad8-f474a9b3a233"
     legacy = root.parent / "runs" / run_id
     legacy.mkdir(parents=True)
     pq.write_table(pa.table({"latency_ms": [55.0]}), legacy / "run.parquet")
+    checkpoint = tmp_path / ".cache" / "checkpoints.sqlite"
+    checkpoint.parent.mkdir()
+    trace = {"stage_latency_ms": {"decide": 5, "act": 13, "synthesize": 30}}
+    snapshot = {"channel_values": {"result": {"trace": trace}}}
+    kind, payload = JsonPlusSerializer().dumps_typed(snapshot)
+    with closing(sqlite3.connect(checkpoint)) as db, db:
+        db.execute(
+            "CREATE TABLE checkpoints (thread_id, checkpoint_ns, checkpoint_id, type, checkpoint)"
+        )
+        db.execute("INSERT INTO checkpoints VALUES (?, '', '1', ?, ?)", (run_id, kind, payload))
     arm = {"abstain": True, "grade": None, "stop_reason": "completed", "flagged_sources": []}
     common = {
         "arms": dict.fromkeys(ARMS, arm),
@@ -291,12 +304,19 @@ def test_eval_report_latency_clocks_and_legacy_product_receipt(tmp_path, monkeyp
         "seal_0": False,
     }
     cases = [
-        {"dataset": "simpleqa", "latency_ms": 100, "processing_ms": 60, "total_latency_ms": 35},
+        {
+            "dataset": "simpleqa",
+            "latency_ms": 100,
+            "processing_ms": 60,
+            "graph_ms": 28,
+            "total_latency_ms": 35,
+        },
         {"latency_ms": 250, "processing_ms": 90, "run_id": run_id},
         {"latency_ms": 400, "seal_0": True},
     ]
     for index, case in enumerate(cases):
-        (root / "smoke" / f"{index}.json").write_text(json.dumps(common | case), encoding="utf-8")
+        row = common | case | {"question_id": f"q{index}"}
+        (root / "smoke" / f"{index}.json").write_text(json.dumps(row), encoding="utf-8")
     client = Mock()
     monkeypatch.setitem(
         sys.modules, "mlflow", SimpleNamespace(MlflowClient=Mock(return_value=client))
@@ -304,18 +324,24 @@ def test_eval_report_latency_clocks_and_legacy_product_receipt(tmp_path, monkeyp
     summary = report("smoke", root=root, mlflow_uri="mock")
     assert summary["cumulative_batch_ms"] == {"p50": 250, "p95": 385}
     assert summary["processing_ms"] == {"p50": 75, "p95": 88.5}
+    assert summary["graph_ms"] == {"p50": 38, "p95": 47}
+    assert summary["graph_ms_by_question"] == {"q0": 28, "q1": 48, "q2": None}
     assert summary["total_latency_ms"] == {"p50": 45, "p95": 54}
     assert summary["seal_0"]["total_latency_ms"] == {"p50": None, "p95": None}
     assert "queue_inclusive_latency_ms" not in summary
     recorded = {call.args[1]: call.args[2] for call in client.log_metric.call_args_list}
     assert recorded["cumulative_batch_p95_ms"] == 385
     assert recorded["processing_p95_ms"] == 88.5
+    assert recorded["graph_p95_ms"] == 47
     assert recorded["total_latency_p95_ms"] == 54
+    assert summary["latency_labels"]["total_latency_ms"] == "Trace latency incl. eval A/B hook"
 
     monkeypatch.setattr(report_module, "report", lambda *args, **kwargs: summary)
     main(["report", "--stage", "smoke", "--mlflow-uri", "", "--latency-markdown"])
     rendered = capsys.readouterr().out
     assert "| All questions | Time since batch start | 250.00 | 385.00 |" in rendered
     assert "| All questions | Per-question eval processing | 75.00 | 88.50 |" in rendered
-    assert "| All questions | Product trace latency | 45.00 | 54.00 |" in rendered
-    assert "| Seal-0 | Product trace latency | not recorded | not recorded |" in rendered
+    assert "| All questions | Product graph latency | 38.00 | 47.00 |" in rendered
+    assert "| All questions | Trace latency incl. eval A/B hook | 45.00 | 54.00 |" in rendered
+    assert "| Seal-0 | Product graph latency | not recorded | not recorded |" in rendered
+    assert "| q1 | 48.00 |" in rendered
