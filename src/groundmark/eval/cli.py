@@ -1,5 +1,6 @@
 import argparse
 import json
+from pathlib import Path
 
 from groundmark.eval.datasets import DATASETS
 from groundmark.eval.splits import freeze
@@ -15,6 +16,9 @@ def main(argv: list[str] | None = None) -> None:
     checker = commands.add_parser("checker")
     checker.add_argument("--mlflow-uri", default="")
     checker.add_argument("--model", action="append")
+    analysis = commands.add_parser("checker-analyze")
+    analysis.add_argument("receipts", nargs="+", type=Path)
+    analysis.add_argument("--output", required=True, type=Path)
     run = commands.add_parser("run")
     run.add_argument("--stage", choices=STAGES, required=True)
     run.add_argument("--live", action="store_true")
@@ -44,6 +48,13 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps(failure))
         if failures:
             raise SystemExit(1)
+    elif args.command == "checker-analyze":
+        from groundmark.eval.checker_analysis import analyze
+
+        try:
+            analyze(args.receipts, args.output)
+        except (ValueError, OSError) as error:
+            parser.exit(1, f"{error}\n")
     else:
         if args.command == "run" and not args.live:
             parser.error("run requires --live")

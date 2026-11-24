@@ -20,6 +20,7 @@ from groundmark.nli import NLI_MODELS, NLIModel
 from groundmark.sources import private_json
 
 ARTIFACTS = Path(".artifacts/eval/druid-dev")
+EXPERIMENT = "groundmark-checker-druid-dev-v2"
 FOCUS = (
     ("lytang/MiniCheck-RoBERTa-Large", "74c8919647e61ed0f71bc177d94f10930f090068", "roberta-large"),
     (
@@ -98,6 +99,7 @@ class Measurements:
     actual_truncations: list[bool]
     predictions: list[int]
     scores: list[float]
+    contradiction_scores: list[float | None]
     batches_ms: list[float]
     peak_allocated_bytes: int
     nvidia_peak_mib: int | None
@@ -234,6 +236,7 @@ def _measure(rows, checkpoint, kind, dtype):
     torch.cuda.reset_peak_memory_stats()
     thread.start()
     lengths, truncated, predictions, scores, batches = [], [], [], [], []
+    contradiction_scores = []
     try:
         if kind == "nli":
             scorer = NLIModel(checkpoint, device="cuda", dtype=dtype)
@@ -247,6 +250,7 @@ def _measure(rows, checkpoint, kind, dtype):
                 torch.cuda.synchronize()
                 batches.append((perf_counter() - now) * 1000)
                 scores.extend(row[0] for row in probabilities)
+                contradiction_scores.extend(row[1] for row in probabilities)
                 predictions.extend(max(range(3), key=row.__getitem__) for row in probabilities)
                 lengths.extend(counts)
                 truncated.extend(n > scorer.max_length for n in counts)
@@ -264,15 +268,25 @@ def _measure(rows, checkpoint, kind, dtype):
                 lengths.append(count)
                 truncated.append(was_truncated)
                 scores.append(probability)
+                contradiction_scores.append(None)
                 predictions.append(0 if probability > 0.5 else 2)
-        if not all(math.isfinite(score) for score in scores):
+        if not all(
+            score is None or math.isfinite(score) for score in (*scores, *contradiction_scores)
+        ):
             raise ValueError(f"Nonfinite probabilities in {dtype}")
         allocated = torch.cuda.max_memory_allocated()
     finally:
         stop.set()
         thread.join()
     return Measurements(
-        lengths, truncated, predictions, scores, batches, allocated, max(gpu_samples, default=None)
+        lengths,
+        truncated,
+        predictions,
+        scores,
+        contradiction_scores,
+        batches,
+        allocated,
+        max(gpu_samples, default=None),
     )
 
 
@@ -289,7 +303,7 @@ def _log_mlflow(result: dict, path: Path, uri: str) -> None:
     from mlflow import MlflowClient
 
     client = MlflowClient(tracking_uri=uri)
-    name = "groundmark-checker-druid-dev"
+    name = EXPERIMENT
     experiment = client.get_experiment_by_name(name)
     experiment_id = experiment.experiment_id if experiment else client.create_experiment(name)
     run_id = client.create_run(experiment_id, run_name=result["model"]).info.run_id
@@ -308,17 +322,7 @@ def _log_mlflow(result: dict, path: Path, uri: str) -> None:
         raise
 
 
-def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[dict]:
-    import numpy as np
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    import torch
-
-    from groundmark.eval.checker_metrics import checker_metrics
-
-    if not torch.cuda.is_available():
-        raise RuntimeError("DRUID checker evaluation requires CUDA")
-
+def druid_dev() -> tuple[list[dict], dict, str]:
     raw_manifest = (SPLITS / "druid.json").read_bytes()
     manifest = json.loads(raw_manifest)
     if manifest["dataset"] != DRUID.manifest():
@@ -326,9 +330,32 @@ def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[
     ids = {
         row_id: group for group, row_ids in manifest["dev"]["groups"].items() for row_id in row_ids
     }
-    rows = [row for row in DRUID.read() if row["id"] in ids]
+    rows = [{**row, "group": ids[row["id"]]} for row in DRUID.read() if row["id"] in ids]
     if len(rows) != len(ids) or not rows:
         raise ValueError("DRUID DEV manifest contains missing IDs")
+    return rows, manifest, hashlib.sha256(raw_manifest).hexdigest()
+
+
+def write_predictions(path: Path, predictions: list[dict]) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    with NamedTemporaryFile(dir=path.parent) as file:
+        pq.write_table(pa.Table.from_pylist(predictions), file)
+        file.flush()
+        os.link(file.name, path)
+
+
+def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[dict]:
+    import numpy as np
+    import torch
+
+    from groundmark.eval.checker_metrics import checker_metrics
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("DRUID checker evaluation requires CUDA")
+
+    rows, manifest, split_sha = druid_dev()
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     local_punkt()
     failures = []
@@ -350,18 +377,20 @@ def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[
             predictions = [
                 {
                     "row_id": row["id"],
-                    "group": ids[row["id"]],
+                    "group": row["group"],
                     "native_gold": row["evidence_stance"],
                     "is_gold": row["is_gold"] == "True",
                     "prediction": prediction,
                     "support_score": score,
+                    "contradiction_score": contradiction,
                     "max_input_tokens": length,
                     "truncated": was_truncated,
                 }
-                for row, prediction, score, length, was_truncated in zip(
+                for row, prediction, score, contradiction, length, was_truncated in zip(
                     rows,
                     measurements.predictions,
                     measurements.scores,
+                    measurements.contradiction_scores,
                     measurements.lengths,
                     measurements.actual_truncations,
                     strict=True,
@@ -372,7 +401,7 @@ def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[
                 "model_revision": revision,
                 "model_sha256s": _file_hashes(checkpoint),
                 "dataset": manifest["dataset"],
-                "split_sha256": hashlib.sha256(raw_manifest).hexdigest(),
+                "split_sha256": split_sha,
                 "commit": commit,
                 "split": "dev",
                 "dtype": dtype,
@@ -406,10 +435,7 @@ def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[
             }
             path = ARTIFACTS / uuid4().hex
             path.mkdir(parents=True, mode=0o700)
-            with NamedTemporaryFile(dir=path, delete_on_close=False) as file:
-                pq.write_table(pa.Table.from_pylist(predictions), file)
-                file.flush()
-                os.link(file.name, path / "predictions.parquet")
+            write_predictions(path / "predictions.parquet", predictions)
             private_json(path / "metrics.json", result)
             print(f"checker: artifacts {path}", flush=True)
             if mlflow_uri:

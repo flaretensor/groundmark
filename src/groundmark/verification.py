@@ -22,6 +22,7 @@ from groundmark.runtime import Calls
 from groundmark.sources import clean_text, untrusted_source
 
 _PUNCTUATION = str.maketrans("‘’‚‛“”„‟‐‑‒–—―−", "''''\"\"\"\"-------")
+CLAIM_STANCE_ORDER = ("not_enough_evidence", "supported", "refuted", "conflicting")
 SYSTEM = (
     "You check claims for a research agent against one supplied source. Judge each listed claim "
     "using only that source; the question and current date are context for scope and period, not "
@@ -116,16 +117,9 @@ def checked_pair(
 def aggregate(claim: Claim, pairs: list[PairVerification]) -> ClaimResult:
     support = any(pair.verdict == "supports" for pair in pairs)
     contradiction = any(pair.verdict == "refutes" for pair in pairs)
-    status = "not_enough_evidence"
-    if support and contradiction:
-        status = "conflicting"
-    elif support:
-        status = "supported"
-    elif contradiction:
-        status = "refuted"
     return ClaimResult(
         claim=claim,
-        status=status,
+        status=CLAIM_STANCE_ORDER[support + 2 * contradiction],
         pairs=pairs,
         reason="" if claim.source_ids else "no valid citation",
     )
