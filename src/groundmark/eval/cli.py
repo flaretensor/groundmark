@@ -45,6 +45,7 @@ def main(argv: list[str] | None = None) -> None:
     report = commands.add_parser("report")
     report.add_argument("--stage", choices=STAGES, required=True)
     report.add_argument("--mlflow-uri")
+    report.add_argument("--latency-markdown", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "fetch":
@@ -165,10 +166,11 @@ def _evaluate(args) -> None:
             raise ValueError("--stage-cap-usd must be positive and at most 0.50")
         print(json.dumps(run_validation(usd_amount(0, args.stage_cap_usd), args.mlflow_uri)))
     elif args.command == "report":
-        from groundmark.eval.report import report
+        from groundmark.eval.report import latency_markdown, report
 
         uri = args.mlflow_uri if args.mlflow_uri is not None else Settings().mlflow_tracking_uri
-        print(json.dumps(report(args.stage, mlflow_uri=uri), indent=2))
+        summary = report(args.stage, mlflow_uri=uri)
+        print(latency_markdown(summary) if args.latency_markdown else json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

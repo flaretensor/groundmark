@@ -233,6 +233,7 @@ def run_stage(
             arms = {}
             pipeline = {}
             calls = None
+            total_latency_ms = None
             started = perf_counter_ns()
 
             def collect(state, context):
@@ -246,6 +247,7 @@ def run_stage(
                 )
                 run_id = outcome.trace.run_id
                 stop_reason = outcome.trace.stop_reason
+                total_latency_ms = outcome.trace.total_latency_ms
                 if grade is not None and calls is not None:
                     pipeline = smoke_telemetry(outcome, calls)
             except ResearchFailure as error:
@@ -277,6 +279,7 @@ def run_stage(
                 "latency_ms": (end - queued) / 1_000_000,
                 "queue_ms": (started - queued) / 1_000_000,
                 "processing_ms": (end - started) / 1_000_000,
+                "total_latency_ms": total_latency_ms,
                 "tavily_credits_charged_or_reserved": after.credits - before.credits,
                 "nebius_nanos_charged_or_reserved": after.nanos - before.nanos,
                 "arms": arms,

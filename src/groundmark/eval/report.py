@@ -1,14 +1,21 @@
 import json
 from collections import Counter
 from pathlib import Path
+from uuid import UUID
 
 import numpy as np
+from pyarrow.parquet import ParquetFile
 
 from groundmark.eval.runner import ARMS, ROOT, stage_ledger
 from groundmark.sources import private_json
 
 EXPECTED = {"smoke": 10, "dev": 50, "test": 210}
 PAIRS = (("D", "A"), ("D", "C"), ("B", "A"))
+LATENCY_LABELS = {
+    "cumulative_batch_ms": "Time since batch start",
+    "processing_ms": "Per-question eval processing",
+    "total_latency_ms": "Product trace latency",
+}
 
 
 def status(arm: dict) -> str:
@@ -38,6 +45,29 @@ def _paired(rows, left: str, right: str) -> dict:
         "delta": float(values.mean()),
         "ci95": np.quantile(means, (0.025, 0.975)).tolist(),
     }
+
+
+def _latency_quantiles(rows: list[dict], field: str) -> dict:
+    values = [value for row in rows if (value := row.get(field)) is not None]
+    quantiles = np.quantile(values, (0.5, 0.95)).tolist() if values else (None, None)
+    return dict(zip(("p50", "p95"), quantiles, strict=True))
+
+
+def _recorded_product_latency(root: Path, run_id: str | None) -> float | None:
+    if run_id is None:
+        return None
+    try:
+        identifier = UUID(run_id)
+    except ValueError:
+        return None
+    path = root.parent / "runs" / str(identifier) / "run.parquet"
+    if not path.is_file():
+        return None
+    receipt = ParquetFile(path)
+    if "latency_ms" in receipt.schema_arrow.names and receipt.metadata.num_rows:
+        # The product run receipt stores trace.total_latency_ms as latency_ms.
+        return receipt.read(columns=["latency_ms"])[0][0].as_py()
+    return None
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -72,13 +102,15 @@ def summarize(rows: list[dict]) -> dict:
             "flagged_questions": sum(bool(arm["flagged_sources"]) for arm in arms),
             "stop_reasons": dict(Counter(arm["stop_reason"] for arm in arms)),
         }
-    latency = [row["latency_ms"] for row in rows]
-    quantiles = np.quantile(latency, (0.5, 0.95)).tolist() if latency else [None, None]
     return {
         "questions": total,
         "arms": by_arm,
         "paired": {f"{a}-{b}": _paired(rows, a, b) for a, b in PAIRS},
-        "queue_inclusive_latency_ms": dict(zip(("p50", "p95"), quantiles, strict=True)),
+        # Eval rows store time since batch start in latency_ms.
+        "cumulative_batch_ms": _latency_quantiles(rows, "latency_ms"),
+        # Per-question wall time includes extra A/B processing and grading when run inline.
+        "processing_ms": _latency_quantiles(rows, "processing_ms"),
+        "total_latency_ms": _latency_quantiles(rows, "total_latency_ms"),
         "stop_reasons": dict(Counter(row["stop_reason"] for row in rows)),
     }
 
@@ -86,6 +118,9 @@ def summarize(rows: list[dict]) -> dict:
 def report(stage: str, root: Path = ROOT, mlflow_uri: str = "") -> dict:
     paths = sorted((root / stage).glob("*.json"))
     rows = [json.loads(path.read_bytes()) for path in paths]
+    for row in rows:
+        if row.get("total_latency_ms") is None:
+            row["total_latency_ms"] = _recorded_product_latency(root, row.get("run_id"))
     ledger_path = root / "spend_ledger.jsonl"
     used = stage_ledger(root, stage).scope_total() if ledger_path.is_file() else None
     summary = {
@@ -118,6 +153,27 @@ def report(stage: str, root: Path = ROOT, mlflow_uri: str = "") -> dict:
     return summary
 
 
+def latency_markdown(summary: dict) -> str:
+    lines = [
+        "| Scope | Latency measure | p50 (ms) | p95 (ms) |",
+        "|---|---|---:|---:|",
+    ]
+    scopes = {
+        "All questions": summary,
+        "SimpleQA Verified": summary["datasets"]["simpleqa"],
+        "Seal-Hard": summary["datasets"]["sealqa"],
+        "Seal-0": summary["seal_0"],
+    }
+    for scope, results in scopes.items():
+        for field, label in LATENCY_LABELS.items():
+            p50, p95 = (
+                f"{value:.2f}" if value is not None else "not recorded"
+                for value in (results[field]["p50"], results[field]["p95"])
+            )
+            lines.append(f"| {scope} | {label} | {p50} | {p95} |")
+    return "\n".join(lines)
+
+
 def log_mlflow(summary: dict, root: Path, uri: str) -> None:
     from mlflow import MlflowClient
 
@@ -141,9 +197,10 @@ def log_mlflow(summary: dict, root: Path, uri: str) -> None:
             for key, numerator in result["rates"].items():
                 if numerator is not None:
                     client.log_metric(run_id, f"{arm}.{key}_rate", numerator)
-        for quantile, latency in summary["queue_inclusive_latency_ms"].items():
-            if latency is not None:
-                client.log_metric(run_id, f"queue_inclusive_{quantile}_ms", latency)
+        for field in LATENCY_LABELS:
+            for quantile, latency in summary[field].items():
+                if latency is not None:
+                    client.log_metric(run_id, f"{field.removesuffix('_ms')}_{quantile}_ms", latency)
         for comparison, result in summary["paired"].items():
             if result["delta"] is not None:
                 client.log_metric(run_id, f"{comparison}.delta", result["delta"])
