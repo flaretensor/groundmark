@@ -577,3 +577,36 @@ def test_claim_text_cleanup_dated_prompt_and_partial_support(settings):
     assert result.summary == "The plant opened in 2024. [S1]"
     assert [row.status for row in result.claims] == ["supported", "not_enough_evidence"]
     assert result.insufficient_evidence is False
+
+
+def test_duplicate_verdict_is_recorded_without_retry(settings):
+    import pyarrow.parquet as pq
+
+    claims = [
+        {"claim_id": "C1", "text": "The plant opened in 2024.", "source_ids": []},
+        {"claim_id": "C2", "text": "The plant opened in 2024.", "source_ids": ["S1"]},
+    ]
+    support = {
+        "claim_id": "C1",
+        "verdict": "supports",
+        "evidence_quote": "opened in 2024",
+        "reason": "The source gives the year.",
+    }
+    llm = ScriptedLLM(
+        Action=[decision(query="plant opening"), decision("finish")],
+        Synthesis=[synthesis(*claims)],
+        PairJudgments=[
+            {"pairs": [support, support | {"verdict": "refutes"}, support | {"claim_id": "C2"}]}
+        ],
+    )
+    result = ResearchRunner(settings, llm=llm, search=ScriptedSearch([snippet()])).run("When?")
+
+    rejected, accepted = result.claims
+    assert rejected.pairs[0].verdict == "not_enough_info"
+    assert rejected.pairs[0].error_code == "multiple_verdicts"
+    assert accepted.status == "supported"
+    assert [error.kind for error in result.trace.errors] == ["multiple_verdicts"]
+    assert sum(request.schema is PairJudgments for request in llm.requests) == 1
+    path = settings.artifacts_dir / "runs" / result.trace.run_id / "claims.parquet"
+    rejected_record, _ = pq.read_table(path).to_pylist()
+    assert rejected_record["pair_verdicts"][0]["error_code"] == "multiple_verdicts"

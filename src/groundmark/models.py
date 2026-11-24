@@ -111,6 +111,7 @@ class PairVerification(BaseModel):
     evidence_scope: EvidenceScope = "snippet"
     evidence_preview: str = ""
     cited: bool = True
+    error_code: Literal["multiple_verdicts"] | None = None
 
     @field_validator("verdict", "raw_verdict", mode="before")
     @classmethod

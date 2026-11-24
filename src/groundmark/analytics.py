@@ -73,6 +73,7 @@ CLAIM_SCHEMA = pa.schema(
                         ("evidence_quote", pa.string()),
                         ("evidence_scope", pa.string()),
                         ("cited", pa.bool_()),
+                        ("error_code", pa.string()),
                     ]
                 )
             ),

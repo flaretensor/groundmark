@@ -153,7 +153,7 @@ class NebiusVerifier:
                 pair
                 for future in futures
                 for pair in future.result()
-                if pair.cited or pair.verdict != "not_enough_info"
+                if pair.cited or pair.verdict != "not_enough_info" or pair.error_code is not None
             ]
 
     def verify_source(
@@ -177,6 +177,7 @@ class NebiusVerifier:
             f"Current date: {today}\nQuestion: {question}\nClaims:\n{claims_json}\n"
             f"{untrusted_source(source.source_id, content=text)}"
         )
+        counts = Counter()
         try:
             answer = self.calls.structured(
                 "verify",
@@ -218,6 +219,9 @@ class NebiusVerifier:
                 require_quote=self.calls.settings.require_quote,
             )
             pair.cited = source.source_id in claim.source_ids
+            if counts[claim.claim_id] > 1:
+                pair.error_code = "multiple_verdicts"
+                self.calls.error("verify", ProviderFailure("nebius", "multiple_verdicts"))
             if pair.verdict != pair.raw_verdict:
                 pair.reason = "The quoted evidence could not be located in the supplied text."
             pairs.append(pair)
