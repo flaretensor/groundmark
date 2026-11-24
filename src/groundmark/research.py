@@ -12,7 +12,7 @@ from groundmark.budget import BudgetRefused, SpendLedger, usd_amount
 from groundmark.checkpoints import build_checkpointer
 from groundmark.config import Credentials, Settings
 from groundmark.evidence import extract_evidence
-from groundmark.graph import GraphContext, build_graph, finalize
+from groundmark.graph import GraphContext, State, build_graph, finalize
 from groundmark.local_verifier import LocalNLIVerifier
 from groundmark.models import Progress, ResearchResult
 from groundmark.providers import Embedder, LLMClient, NebiusClient, SearchClient, TavilySearchClient
@@ -50,6 +50,7 @@ class ResearchRunner:
         embedder: Embedder | None = None,
         verifier_factory: Callable[[Calls], Verifier] | None = None,
         extract_node=extract_evidence,
+        ledger: SpendLedger | None = None,
     ):
         self.settings = settings or Settings()
         self.credentials = credentials
@@ -60,6 +61,7 @@ class ResearchRunner:
             LocalNLIVerifier if self.settings.checker == "local-nli" else NebiusVerifier
         )
         self.extract_node = extract_node
+        self.ledger = ledger
 
     def run(
         self,
@@ -69,6 +71,7 @@ class ResearchRunner:
         *,
         eval_question_id: str | None = None,
         eval_arm: str | None = None,
+        eval_hook: Callable[[State, GraphContext], None] | None = None,
     ) -> ResearchResult:
         if len(question) > 500 or not question.strip():
             raise ResearchFailure("invalid_question")
@@ -94,7 +97,7 @@ class ResearchRunner:
             else min(settings.max_usd, options.max_cost)
         )
         limit = usd_amount(credits, usd)
-        ledger = SpendLedger(
+        ledger = self.ledger or SpendLedger(
             settings.ledger_path,
             usd_amount(settings.max_total_tavily_credits, settings.max_total_usd),
         )
@@ -137,11 +140,17 @@ class ResearchRunner:
             today=datetime.now(UTC).date().isoformat(),
         )
         try:
-            result = self._run_graph(question, context, live)
+            result = self._run_graph(question, context, live, eval_hook)
             if otlp_note:
                 result.trace.notes.append(otlp_note)
             try:
-                metadata = provenance(settings, calls.tavily_receipts, eval_question_id, eval_arm)
+                metadata = provenance(
+                    settings,
+                    calls.tavily_receipts,
+                    eval_question_id,
+                    eval_arm,
+                    options.model_dump(mode="json"),
+                )
                 append_result(settings.artifacts_dir / "runs", result, metadata)
             except OSError:
                 result.trace.notes.append("Run analytics could not be written.")
@@ -153,7 +162,13 @@ class ResearchRunner:
             if tavily is not None:
                 tavily.close()
 
-    def _run_graph(self, question: str, context: GraphContext, live: bool) -> ResearchResult:
+    def _run_graph(
+        self,
+        question: str,
+        context: GraphContext,
+        live: bool,
+        eval_hook: Callable[[State, GraphContext], None] | None = None,
+    ) -> ResearchResult:
         calls = context.calls
         telemetry = calls.telemetry
         config = {
@@ -186,6 +201,9 @@ class ResearchRunner:
                         raise ResearchFailure("incomplete")
                     persisted = True
                 root.set_attribute("groundmark.stop_reason", result["trace"]["stop_reason"])
+                if eval_hook:
+                    state = graph.get_state(config).values if persisted else {"question": question}
+                    eval_hook({**state, "result": result}, context)
             elapsed, spans = telemetry.collect()
             result["trace"].update(
                 total_latency_ms=elapsed,

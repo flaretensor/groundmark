@@ -113,6 +113,12 @@ class Calls:
                         span.set_attribute("groundmark.reservation_underestimated", True)
                     self.ledger.settle(self.run_id, reservation, actual)
                     self._add_usage(actual, usage)
+                    if actual.exceeds(worst_case) and self.ledger.scope is not None:
+                        self.ledger.scope_blocked = True
+                        raise BudgetRefused(
+                            "provider usage exceeded evaluation reservation",
+                            kind="credits" if actual.credits > worst_case.credits else "usd",
+                        )
                     if finish:
                         span.set_attribute("gen_ai.response.finish_reasons", (finish,))
                     if usage is not None:

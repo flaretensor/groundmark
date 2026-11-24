@@ -145,13 +145,20 @@ def decide(state: State, context: GraphContext) -> State:
     sources = _get_sources(state)
     credits = context.remaining_credits()
     if not credits and not context.use_cache:
+        ledger = context.calls.ledger
+        if ledger.scope_limit is not None:
+            ledger.scope_blocked |= (
+                ledger.scope_total().credits >= ledger.scope_limit.credits
+                or ledger.total().credits >= ledger.total_limit.credits
+            )
         context.calls.error("decide", BudgetRefused(kind="credits"))
         return {"stop_reason": "budget"}
     if searches >= context.max_searches and (not sources or extracts >= settings.max_extract_calls):
         return {"stop_reason": "max_searches" if sources else "no_sources"}
 
-    committed = context.calls.ledger.total(context.calls.run_id).nanos
-    remaining_usd = max(0, context.calls.limit.nanos - committed) / 1e9
+    remaining_usd = (
+        context.calls.ledger.remaining(context.calls.run_id, context.calls.limit).nanos / 1e9
+    )
     prompt = (
         f"Current date: {context.today}\nQuestion: {state['question']}\n"
         f"Remaining steps: {settings.max_steps - len(previous)}; "

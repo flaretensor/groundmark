@@ -15,6 +15,7 @@ import pyarrow.parquet as pq
 
 from groundmark.config import Settings
 from groundmark.models import ResearchResult
+from groundmark.nli import NLI_MODELS
 from groundmark.pricing import EMBEDDING_MODEL
 from groundmark.sources import private_json
 
@@ -101,7 +102,11 @@ class RunProvenance:
 
 
 def provenance(
-    settings: Settings, receipts: list[dict], question_id: str | None, arm: str | None
+    settings: Settings,
+    receipts: list[dict],
+    question_id: str | None,
+    arm: str | None,
+    options: dict,
 ) -> RunProvenance:
     commit = settings.git_commit_sha
     if not commit:
@@ -116,7 +121,9 @@ def provenance(
     configuration = settings.model_dump(
         mode="json", exclude={"checkpoint_url", "api_url", "otlp_endpoint", "mlflow_tracking_uri"}
     )
-    digest = hashlib.sha256(json.dumps(configuration, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps({"settings": configuration, "options": options}, sort_keys=True).encode()
+    ).hexdigest()
     return RunProvenance(
         question_id,
         arm,
@@ -126,6 +133,7 @@ def provenance(
             "agent": settings.model,
             "checker": settings.resolved_checker_model,
             "checker_type": settings.checker,
+            "checker_revision": NLI_MODELS.get(settings.resolved_checker_model),
             "embedding": EMBEDDING_MODEL,
             "judge": settings.judge_model,
             "reranker": settings.reranker,

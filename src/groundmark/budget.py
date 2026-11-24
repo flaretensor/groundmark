@@ -44,9 +44,38 @@ def usd_amount(credits: int, usd: float) -> Amount:
 
 
 class SpendLedger:
-    def __init__(self, path: Path, total_limit: Amount):
+    def __init__(
+        self,
+        path: Path,
+        total_limit: Amount,
+        *,
+        scope: str | None = None,
+        scope_limit: Amount | None = None,
+    ):
         self.path = path
         self.total_limit = total_limit
+        if (scope is None) != (scope_limit is None):
+            raise ValueError("Scope and scope limit must be specified together")
+        self.scope = scope
+        self.scope_limit = scope_limit
+        self.scope_blocked = False
+
+    def _scoped_usage(self, rows: list[dict]) -> Amount:
+        return self._used([row for row in rows if row.get("scope") == self.scope])
+
+    def scope_total(self) -> Amount:
+        with self._locked() as (rows, _):
+            return self._scoped_usage(rows)
+
+    def _limits(self, rows: list[dict], run_id: str, limit: Amount):
+        yield limit, self._used(rows, run_id), False
+        yield self.total_limit, self._used(rows), self.scope is not None
+        if self.scope_limit is not None:
+            yield self.scope_limit, self._scoped_usage(rows), True
+
+    def _refuse(self, kind, scoped: bool) -> None:
+        self.scope_blocked |= scoped
+        raise BudgetRefused(kind=kind)
 
     @contextmanager
     def _locked(self) -> Iterator[tuple[list[dict], object]]:
@@ -83,36 +112,40 @@ class SpendLedger:
         with self._locked() as (rows, _):
             return self._used(rows, run_id)
 
-    def remaining_credits(self, run_id: str, limit: Amount) -> int:
+    def remaining(self, run_id: str, limit: Amount) -> Amount:
         with self._locked() as (rows, _):
-            return max(
-                0,
-                min(
-                    limit.credits - self._used(rows, run_id).credits,
-                    self.total_limit.credits - self._used(rows).credits,
-                ),
+            limits = list(self._limits(rows, run_id, limit))
+            return Amount(
+                max(0, min(cap.credits - used.credits for cap, used, _ in limits)),
+                max(0, min(cap.nanos - used.nanos for cap, used, _ in limits)),
             )
+
+    def remaining_credits(self, run_id: str, limit: Amount) -> int:
+        return self.remaining(run_id, limit).credits
 
     def start(self, run_id: str) -> None:
         with self._locked() as (rows, file):
-            used = self._used(rows)
-            if used.nanos >= self.total_limit.nanos:
-                raise BudgetRefused("total provider budget reached")
-            if used.credits >= self.total_limit.credits:
-                raise BudgetRefused("total provider budget reached", kind="credits")
-            self._append(file, {"event": "start", "run_id": run_id})
+            limits = [(self.total_limit, self._used(rows))]
+            if self.scope_limit is not None:
+                limits.append((self.scope_limit, self._scoped_usage(rows)))
+            for limit, used in limits:
+                if used.nanos >= limit.nanos:
+                    self._refuse("usd", self.scope is not None)
+                if used.credits >= limit.credits:
+                    self._refuse("credits", self.scope is not None)
+            self._append(file, {"event": "start", "run_id": run_id, "scope": self.scope})
 
     def reserve(self, run_id: str, operation: str, amount: Amount, limit: Amount) -> str:
         call_id = uuid4().hex
         with self._locked() as (rows, file):
-            run_after = self._used(rows, run_id) + amount
-            total_after = self._used(rows) + amount
-            if run_after.nanos > limit.nanos or total_after.nanos > self.total_limit.nanos:
-                raise BudgetRefused()
-            if amount.credits and (
-                run_after.credits > limit.credits or total_after.credits > self.total_limit.credits
-            ):
-                raise BudgetRefused(kind="credits")
+            if self.scope_blocked:
+                raise BudgetRefused("evaluation stage budget reached")
+            for ceiling, used, scoped in self._limits(rows, run_id, limit):
+                after = used + amount
+                if after.nanos > ceiling.nanos:
+                    self._refuse("usd", scoped)
+                if amount.credits and after.credits > ceiling.credits:
+                    self._refuse("credits", scoped)
             self._append(
                 file,
                 {
@@ -120,6 +153,7 @@ class SpendLedger:
                     "run_id": run_id,
                     "call_id": call_id,
                     "operation": operation,
+                    "scope": self.scope,
                     "credits": amount.credits,
                     "nanos": amount.nanos,
                 },
@@ -142,6 +176,7 @@ class SpendLedger:
                     "event": "settle",
                     "run_id": run_id,
                     "call_id": call_id,
+                    "scope": original.get("scope"),
                     "credits": amount.credits,
                     "nanos": amount.nanos,
                 },
