@@ -192,3 +192,66 @@ def analyze(paths: list[Path], output: Path) -> None:
         ]
         result[subset] = {"models": by_model, "paired": paired}
     private_json(output, result)
+
+
+def hosted_analysis(predictions: list[dict], local: dict[str, list[dict]]) -> dict:
+    from collections import Counter
+
+    output = {}
+    first_local = next(iter(local.values()))
+    for subset, is_gold in SUBSETS.items():
+        selected = [row for row in predictions if row["is_gold"] == is_gold]
+        eligible = [row for row in first_local if row["is_gold"] == is_gold]
+        selected_ids = {row["row_id"] for row in selected}
+        full_group_sizes = Counter(row["group"] for row in eligible)
+        observed_sizes = Counter(row["group"] for row in selected)
+        complete_groups = {
+            group for group, size in observed_sizes.items() if full_group_sizes[group] == size
+        }
+        result = {
+            "valid_pairs": len(selected),
+            "eligible_pairs": len(eligible),
+            "complete_claim_groups": len(complete_groups),
+            "eligible_groups": len(full_group_sizes),
+            "variants": {},
+        }
+        output[subset] = result
+        if not selected:
+            continue
+        groups = ClaimGroups(eligible)
+        mask = np.array([row["row_id"] in selected_ids for row in eligible])
+        for variant, column in (("raw", "raw_prediction"), ("quote_gated", "prediction")):
+            rows = [{**row, "prediction": row[column]} for row in selected]
+            metrics = checker_metrics(rows, ternary=True)
+            target = metrics["metrics"]["false_support_rate"]["value"]
+            complete = [row for row in rows if row["group"] in complete_groups]
+            aggregation = (
+                ClaimGroups(complete).aggregate(
+                    np.array([row["prediction"] for row in complete]), ternary=True
+                )
+                if complete
+                else None
+            )
+            matched = {}
+            if target is not None:
+                for model, local_rows in local.items():
+                    scores = np.array(
+                        [row["support_score"] for row in local_rows if row["is_gold"] == is_gold]
+                    )
+                    oof = groups.out_of_fold(scores, (target,))[target]
+                    matched[model] = {
+                        "thresholds": oof["thresholds"],
+                        **{
+                            name: interval(values)
+                            for name, values in groups.operating_rates(
+                                oof["supports"], mask
+                            ).items()
+                        },
+                    }
+            result["variants"][variant] = {
+                "passages": metrics,
+                "claim_aggregation_complete_groups_only": aggregation,
+                "local_oof_on_same_pairs_target_fsr": target,
+                "local_oof_on_same_pairs": matched,
+            }
+    return output

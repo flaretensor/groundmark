@@ -73,13 +73,16 @@ class Credentials:
         self.tavily = SecretStr(tavily)
 
     @classmethod
-    def load(cls) -> "Credentials":
+    def load(cls, *, nebius_only: bool = False) -> "Credentials":
         values = (
             os.environ
             if os.environ.get("GROUNDMARK_CONTAINER") == "1"
             else dotenv_values(".env", interpolate=False)
         )
-        return cls(values.get("NEBIUS_API_KEY") or "", values.get("TAVILY_API_KEY") or "")
+        return cls(
+            values.get("NEBIUS_API_KEY") or "",
+            "" if nebius_only else (values.get("TAVILY_API_KEY") or ""),
+        )
 
     def redact(self, text: str) -> str:
         for secret in (self.nebius, self.tavily):

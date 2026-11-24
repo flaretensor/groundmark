@@ -17,7 +17,7 @@ class BudgetRefused(Exception):
         self,
         message: str = "estimated provider budget reached",
         *,
-        kind: Literal["credits", "usd"] = "usd",
+        kind: Literal["credits", "usd", "calls"] = "usd",
     ):
         super().__init__(message)
         self.kind = kind
@@ -51,13 +51,17 @@ class SpendLedger:
         *,
         scope: str | None = None,
         scope_limit: Amount | None = None,
+        scope_call_limit: int | None = None,
     ):
         self.path = path
         self.total_limit = total_limit
         if (scope is None) != (scope_limit is None):
             raise ValueError("Scope and scope limit must be specified together")
+        if scope_call_limit is not None and (scope is None or scope_call_limit < 1):
+            raise ValueError("A positive call limit requires a scope")
         self.scope = scope
         self.scope_limit = scope_limit
+        self.scope_call_limit = scope_call_limit
         self.scope_blocked = False
 
     def _scoped_usage(self, rows: list[dict]) -> Amount:
@@ -66,6 +70,21 @@ class SpendLedger:
     def scope_total(self) -> Amount:
         with self._locked() as (rows, _):
             return self._scoped_usage(rows)
+
+    def _scope_reservations(self, rows: list[dict]) -> int:
+        return sum(row.get("scope") == self.scope and row["event"] == "reserve" for row in rows)
+
+    def scope_reservations(self) -> int:
+        with self._locked() as (rows, _):
+            return self._scope_reservations(rows)
+
+    def scope_run_ids(self) -> set[str]:
+        with self._locked() as (rows, _):
+            return {
+                row["run_id"]
+                for row in rows
+                if row.get("scope") == self.scope and row["event"] == "reserve"
+            }
 
     def _limits(self, rows: list[dict], run_id: str, limit: Amount):
         yield limit, self._used(rows, run_id), False
@@ -140,6 +159,11 @@ class SpendLedger:
         with self._locked() as (rows, file):
             if self.scope_blocked:
                 raise BudgetRefused("evaluation stage budget reached")
+            if (
+                self.scope_call_limit is not None
+                and self._scope_reservations(rows) >= self.scope_call_limit
+            ):
+                self._refuse("calls", True)
             for ceiling, used, scoped in self._limits(rows, run_id, limit):
                 after = used + amount
                 if after.nanos > ceiling.nanos:

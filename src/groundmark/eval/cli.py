@@ -19,6 +19,10 @@ def main(argv: list[str] | None = None) -> None:
     analysis = commands.add_parser("checker-analyze")
     analysis.add_argument("receipts", nargs="+", type=Path)
     analysis.add_argument("--output", required=True, type=Path)
+    hosted = commands.add_parser("checker-hosted")
+    hosted.add_argument("--live", action="store_true", required=True)
+    hosted.add_argument("--local-receipts", nargs="+", required=True, type=Path)
+    hosted.add_argument("--mlflow-uri", default="")
     run = commands.add_parser("run")
     run.add_argument("--stage", choices=STAGES, required=True)
     run.add_argument("--live", action="store_true")
@@ -53,6 +57,13 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             analyze(args.receipts, args.output)
+        except (ValueError, OSError) as error:
+            parser.exit(1, f"{error}\n")
+    elif args.command == "checker-hosted":
+        from groundmark.eval.hosted_checker import run_hosted
+
+        try:
+            print(json.dumps(run_hosted(args.local_receipts, args.mlflow_uri)))
         except (ValueError, OSError) as error:
             parser.exit(1, f"{error}\n")
     else:

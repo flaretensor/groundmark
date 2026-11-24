@@ -15,7 +15,7 @@ def no_live_credentials(monkeypatch):
     for name in ("NEBIUS_API_KEY", "TAVILY_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setitem(Settings.model_config, "env_file", None)
-    monkeypatch.setattr(Credentials, "load", lambda: Credentials("", ""))
+    monkeypatch.setattr(Credentials, "load", lambda **_: Credentials("", ""))
 
 
 def snippet(

@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -181,6 +182,8 @@ class NebiusClient:
 
 class TavilySearchClient:
     def __init__(self, api_key: str):
+        if os.environ.get("GROUNDMARK_DISABLE_TAVILY") == "1":
+            raise RuntimeError("Tavily is disabled for this process")
         self.session = requests.Session()
         self.session.hooks["response"].append(self._check_status)
         self.client = TavilyClient(api_key=api_key, session=self.session)

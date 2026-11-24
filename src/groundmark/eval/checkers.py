@@ -340,10 +340,10 @@ def write_predictions(path: Path, predictions: list[dict]) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    with NamedTemporaryFile(dir=path.parent) as file:
+    with NamedTemporaryFile(dir=path.parent, delete_on_close=False) as file:
         pq.write_table(pa.Table.from_pylist(predictions), file)
         file.flush()
-        os.link(file.name, path)
+        os.replace(file.name, path)
 
 
 def run_candidates(mlflow_uri: str = "", only: list[str] | None = None) -> list[dict]:
