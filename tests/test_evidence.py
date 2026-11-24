@@ -38,7 +38,7 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
                 "pairs": [
                     {
                         "claim_id": "C1",
-                        "verdict": "not_supported",
+                        "verdict": "not_enough_info",
                         "reason": "No date.",
                         "evidence_quote": "",
                     }
@@ -48,7 +48,7 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
                 "pairs": [
                     {
                         "claim_id": "C1",
-                        "verdict": "supported",
+                        "verdict": "supports",
                         "reason": "Gives the date.",
                         "evidence_quote": "The plant opened in 2024.",
                     }
@@ -86,8 +86,8 @@ def test_extract_retries_verification_with_claim_specific_ranked_windows(setting
     assert result.claims[0].pairs[0].evidence_scope == "page"
     assert result.trace.extracted_source_ids == ["S1"]
     assert [(pair.evidence_scope, pair.verdict) for pair in result.trace.extraction_attempts] == [
-        ("snippet", "not_supported"),
-        ("page", "supported"),
+        ("snippet", "not_enough_info"),
+        ("page", "supports"),
     ]
     assert len(result.trace.extraction_attempts[1].evidence_preview) <= 600
     assert content not in result.model_dump_json()

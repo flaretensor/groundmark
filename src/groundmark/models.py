@@ -1,9 +1,9 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-PairVerdict = Literal["supported", "not_supported", "contradicted"]
-ClaimStatus = Literal["supported", "not_supported", "contradicted", "conflicting"]
+PairVerdict = Literal["supports", "refutes", "not_enough_info"]
+ClaimStatus = Literal["supported", "refuted", "not_enough_evidence", "conflicting"]
 QuoteMatch = Literal["exact", "normalized", "missing", "not_applicable"]
 EvidenceScope = Literal["snippet", "page"]
 
@@ -93,12 +93,28 @@ class PairVerification(BaseModel):
     evidence_preview: str = ""
     cited: bool = True
 
+    @field_validator("verdict", "raw_verdict", mode="before")
+    @classmethod
+    def read_legacy_verdict(cls, value):
+        aliases = {
+            "supported": "supports",
+            "contradicted": "refutes",
+            "not_supported": "not_enough_info",
+        }
+        return aliases.get(value, value) if isinstance(value, str) else value
+
 
 class ClaimResult(BaseModel):
     claim: Claim
     status: ClaimStatus
     pairs: list[PairVerification] = Field(default_factory=list)
     reason: str = ""
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def read_legacy_status(cls, value):
+        aliases = {"contradicted": "refuted", "not_supported": "not_enough_evidence"}
+        return aliases.get(value, value) if isinstance(value, str) else value
 
 
 class TokenUsage(BaseModel):

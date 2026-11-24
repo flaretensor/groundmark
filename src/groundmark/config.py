@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     cache_dir: Path = Path(".cache")
     artifacts_dir: Path = Path(".artifacts")
     use_cache: bool = False
+    require_quote: bool = True
     reranker: Literal["cross-encoder", "none"] = "none"
     api_url: str = ""
     otlp_endpoint: str = Field("", validation_alias="OTEL_EXPORTER_OTLP_ENDPOINT")

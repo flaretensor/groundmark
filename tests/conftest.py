@@ -2,10 +2,17 @@ import json
 
 import pytest
 
-from groundmark.config import Settings
+from groundmark.config import Credentials, Settings
 from groundmark.models import TokenUsage
 from groundmark.providers import Completion, ExtractionResponse, SearchResponse
 from groundmark.research import ResearchRunner
+
+Settings.model_config["env_file"] = None
+
+
+@pytest.fixture(autouse=True)
+def no_live_credentials(monkeypatch):
+    monkeypatch.setattr(Credentials, "load", lambda: Credentials("", ""))
 
 
 def snippet(
@@ -79,7 +86,7 @@ def outcome(settings):
                 "pairs": [
                     {
                         "claim_id": "C1",
-                        "verdict": "supported",
+                        "verdict": "supports",
                         "evidence_quote": "opened in 2024",
                         "reason": "The source gives the year.",
                     }

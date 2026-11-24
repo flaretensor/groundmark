@@ -57,14 +57,14 @@ PROGRESS = {
 FOLLOW_UP = "Running a follow-up search…"
 STATUS = {
     "supported": ("green", "Supported"),
-    "conflicting": ("orange", "Sources disagree"),
-    "contradicted": ("red", "Contradicted"),
-    "not_supported": ("gray", "Not supported"),
+    "conflicting": ("orange", "Conflicting Evidence/Cherrypicking"),
+    "refuted": ("red", "Refuted"),
+    "not_enough_evidence": ("gray", "Not Enough Evidence"),
 }
 VERDICT = {
-    "supported": "Supports the claim",
-    "contradicted": "Contradicts the claim",
-    "not_supported": "Doesn't support the claim",
+    "supports": "Supports the claim",
+    "refutes": "Contradicts the claim",
+    "not_enough_info": "Doesn't support the claim",
 }
 QUOTES = {
     "exact": "exact quote found in the source",
@@ -292,7 +292,7 @@ def _render_claim(
                 st.markdown(f"> {_escape(pair.evidence_quote)}")
             st.markdown(_escape(_plain(pair.reason, numbers)))
             if lowered:
-                said = "contradicts" if pair.raw_verdict == "contradicted" else "supports"
+                said = "contradicts" if pair.raw_verdict == "refutes" else "supports"
                 st.caption(
                     f"The checker said this source {said} the claim, but its quote isn't in "
                     "the source text, so that verdict doesn't count."
@@ -351,7 +351,7 @@ def _render_result(result: ResearchResult) -> None:
             anchor=False,
             help=(
                 "Open a claim to see how each source was judged: the verdict, the quote the "
-                "checker relied on and its reason. Not supported means the retrieved text "
+                "checker relied on and its reason. Not Enough Evidence means the retrieved text "
                 "doesn't establish the claim, not that the claim is false."
             ),
         )

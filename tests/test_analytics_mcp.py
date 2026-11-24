@@ -17,7 +17,7 @@ def test_parquet_append_is_idempotent_and_report_has_real_aggregates(tmp_path, o
     second.trace.run_id = str(uuid4())
     second.trace.total_latency_ms = 300
     second.trace.tavily_credits = 2
-    second.claims[0].status = "not_supported"
+    second.claims[0].status = "not_enough_evidence"
     second.claims[0].pairs[0].quote_match = "missing"
     second.insufficient_evidence = True
     append_result(tmp_path, first)
@@ -30,7 +30,7 @@ def test_parquet_append_is_idempotent_and_report_has_real_aggregates(tmp_path, o
     assert summary["tavily_credits"] == 3
     assert summary["quote_verification_rate"] == 0.5
     assert summary["claim_statuses"] == [
-        {"status": "not_supported", "count": 1},
+        {"status": "not_enough_evidence", "count": 1},
         {"status": "supported", "count": 1},
     ]
     assert len(summary["per_run"]) == 2

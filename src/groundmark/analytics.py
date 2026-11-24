@@ -118,7 +118,14 @@ def report(directory: Path) -> dict:
             ),
             "claim_statuses": _rows(
                 connection,
-                "SELECT status, COUNT(*) AS count FROM claims GROUP BY status ORDER BY status",
+                """
+                SELECT CASE claims.status
+                         WHEN 'contradicted' THEN 'refuted'
+                         WHEN 'not_supported' THEN 'not_enough_evidence'
+                         ELSE status
+                       END AS status, COUNT(*) AS count
+                FROM claims GROUP BY 1 ORDER BY 1
+                """,
             ),
             "quote_verification_rate": connection.execute(
                 "SELECT SUM(quote_verified)::DOUBLE / NULLIF(SUM(quote_attempted), 0) FROM claims"

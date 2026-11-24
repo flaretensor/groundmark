@@ -65,7 +65,7 @@ class CrossEncoderReranker:
 
 def needs_extraction(state: State) -> bool:
     return any(
-        row["status"] == "not_supported" and row["claim"]["source_ids"]
+        row["status"] == "not_enough_evidence" and row["claim"]["source_ids"]
         for row in state.get("claims", [])
     )
 
@@ -197,7 +197,7 @@ def extract_evidence(
     claims = [ClaimResult.model_validate(row) for row in state.get("claims", [])]
     pending: dict[str, list[Claim]] = {}
     for row in claims:
-        if row.status == "not_supported":
+        if row.status == "not_enough_evidence":
             for source_id in row.claim.source_ids:
                 pending.setdefault(source_id, []).append(row.claim)
     sources = [
@@ -235,7 +235,7 @@ def extract_evidence(
             key = (pair.claim_id, pair.source_id)
             if key in pairs:
                 originals.append(pair)
-                if pairs[key].verdict != "not_supported":
+                if pairs[key].verdict != "not_enough_info":
                     revisions[key] = pairs[key]
     revised = [
         aggregate(

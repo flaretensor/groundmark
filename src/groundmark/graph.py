@@ -411,7 +411,7 @@ def finalize(state: State, context: GraphContext) -> State:
         if row.status == "supported":
             text = strip_markers(row.claim.text, set(), []).strip()
             references = " ".join(
-                f"[{pair.source_id}]" for pair in row.pairs if pair.verdict == "supported"
+                f"[{pair.source_id}]" for pair in row.pairs if pair.verdict == "supports"
             )
             summary.append(f"{text} {references}")
         elif row.status == "conflicting":
@@ -422,7 +422,7 @@ def finalize(state: State, context: GraphContext) -> State:
                     source_ids=[
                         pair.source_id
                         for pair in row.pairs
-                        if pair.verdict in {"supported", "contradicted"}
+                        if pair.verdict in {"supports", "refutes"}
                     ],
                     origin="verification",
                 )

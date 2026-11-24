@@ -127,7 +127,7 @@ def test_unanswerable_shows_one_message_and_reason(outcome):
 
 def test_insufficient_evidence_precedes_zero_supported_claim_summary(outcome):
     outcome.summary = ""
-    outcome.claims[0].status = "not_supported"
+    outcome.claims[0].status = "not_enough_evidence"
     outcome.claims[0].pairs = []
     outcome.insufficient_evidence = True
     outcome.missing_information = ["The opening year."]
@@ -193,8 +193,8 @@ def test_lowered_verdict_hides_quote_and_only_retrieval_date_is_shown(outcome):
     pair = outcome.claims[0].pairs[0]
     outcome.claims[0].pairs[0] = pair.model_copy(
         update={
-            "verdict": "not_supported",
-            "raw_verdict": "supported",
+            "verdict": "not_enough_info",
+            "raw_verdict": "supports",
             "quote_match": "missing",
             "evidence_quote": "made up ... quote",
         }
